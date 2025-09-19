@@ -1,32 +1,64 @@
-open! Core
+(** A card-based battle game interface *)
 
-type player_kind =
-  | X
-  | O
+(** A single card in a deck/hand *)
+module Card : sig
+  type t =
+    | Strike
+    | Defend
+    | Heal
+    | Special of string
+end
 
-type cell_position =
-  { row : int
-  ; column : int
-  }
+(** One player's state *)
+module Player_state : sig
+  type t =
+    { name : string
+    ; health : int
+    ; max_hp : int
+    ; energy : int
+    ; hand : Card.t list
+    ; draw_pile : Card.t list
+    ; discard_pile : Card.t list
+    }
+end
 
-type decision =
-  | In_progress of { whose_turn : player_kind }
-  | Winner of player_kind
-  | Stalemate
+(** Enemy or boss state *)
+module Enemy_state : sig
+  type t =
+    { kind : string
+    ; health : int
+    ; intent : string  (** e.g. "attack 10", "buff", etc. *)
+    }
+end
 
-type game_state =
-  { board : (cell_position * player_kind) list
-  ; rows : int
-  ; columns : int
-  ; winning_sequence_length : int
-  ; decision : decision
-  }
+(** Overall battle/game status *)
+module Decision : sig
+  type t =
+    | In_progress of { whose_turn : [ `Player1 | `Player2 | `Enemy ] }
+    | Victory
+    | Defeat
+end
 
-type move = cell_position
+(** Complete game state *)
+module Game_state : sig
+  type t =
+    { player1 : Player_state.t
+    ; player2 : Player_state.t
+    ; enemies : Enemy_state.t list
+    ; floor : int
+    ; decision : Decision.t
+    }
+end
 
-val initial_state : game_state
-val move_at_0x0 : move
-val state_after_move_at_0x0 : game_state
-val before_terminal_state : game_state
-val move_to_terminal_state : move
-val terminal_state : game_state
+(** A move: which card is played and on which target *)
+module Move : sig
+  type target = [ `Enemy of int | `Player1 | `Player2 ]
+  
+  type t =
+    { card : Card.t
+    ; target : target
+    }
+end
+
+(** An initial example state *)
+val initial_state : Game_state.t
