@@ -1,3 +1,4 @@
+open! Core
 (** A card-based battle game interface *)
 
 (** A single card in a deck/hand *)
