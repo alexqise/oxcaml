@@ -159,6 +159,9 @@ module Game_state : sig
   (** Execute a player's move *)
   val make_move : t -> Move.t -> (t, Move_error.t) Result.t
 
+  (** End the current player's turn and advance to the next player/enemy *)
+  val end_turn : t -> t
+
   (** Process the enemy's turn (AI attacks) *)
   val process_enemy_turn : t -> t
 

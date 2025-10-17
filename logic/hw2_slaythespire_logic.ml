@@ -75,22 +75,31 @@ module Player_state = struct
 
   (* Draw cards from draw pile to hand *)
   let draw_cards t num_cards =
-    let rec draw acc_hand acc_draw_pile remaining =
+    let rec draw acc_hand acc_draw_pile acc_discard remaining =
       if remaining <= 0 then
-        { t with hand = acc_hand; draw_pile = acc_draw_pile }
+        { t with hand = acc_hand; draw_pile = acc_draw_pile; discard_pile = acc_discard }
       else (
         match acc_draw_pile with
         | [] ->
-          (* No more cards to draw, shuffle discard into draw pile *)
-          let shuffled_discard = List.permute t.discard_pile in
-          draw acc_hand shuffled_discard remaining
+          (* No more cards in draw pile, try shuffling discard *)
+          (match acc_discard with
+          | [] -> 
+            (* No cards left anywhere, stop drawing *)
+            { t with hand = acc_hand; draw_pile = []; discard_pile = [] }
+          | _ ->
+            (* Shuffle discard into draw pile *)
+            let shuffled_discard = List.permute acc_discard in
+            draw acc_hand shuffled_discard [] remaining)
         | card :: rest_draw ->
-          draw (card :: acc_hand) rest_draw (remaining - 1))
+          draw (card :: acc_hand) rest_draw acc_discard (remaining - 1))
     in
-    draw t.hand t.draw_pile num_cards
+    draw t.hand t.draw_pile t.discard_pile num_cards
   ;;
 
-  let start_turn t = { t with energy = t.max_energy; block = 0 }
+  (* Start turn: reset energy/block and draw cards *)
+  let start_turn t = 
+    let t_with_reset = { t with energy = t.max_energy; block = 0 } in
+    draw_cards t_with_reset 5  (* Draw 5 cards at start of turn, like Slay the Spire *)
 end
 
 module Enemy_state = struct
@@ -284,7 +293,7 @@ module Game_state = struct
     match t.decision with
     | Victory | Defeat -> Error Game_is_over
     | In_progress { whose_turn = `Enemy } -> Error Not_player_turn
-    | In_progress { whose_turn } ->
+    | In_progress _ ->
       (match get_current_player t with
        | None -> Error Not_player_turn
        | Some current_player ->
@@ -320,18 +329,35 @@ module Game_state = struct
                          move.target
                          updated_entity
                      in
-                     (* Check for game over and advance turn *)
+                     (* Check for game over but DON'T advance turn - players can play multiple cards *)
                      let new_decision = check_game_over t_with_updated_target in
                      let final_decision =
                        if Decision.is_game_over new_decision
                        then new_decision
-                       else (
-                         match whose_turn with
-                         | `Player1 -> Decision.In_progress { whose_turn = `Player2 }
-                         | `Player2 -> Decision.In_progress { whose_turn = `Enemy }
-                         | `Enemy -> Decision.In_progress { whose_turn = `Player1 })
+                       else t_with_updated_target.decision  (* Keep same turn *)
                      in
                      Ok { t_with_updated_target with decision = final_decision })))))
+  ;;
+
+  (* End the current player's turn and advance to next player/enemy *)
+  let end_turn t : t =
+    match t.decision with
+    | Victory | Defeat -> t  (* Game over, can't end turn *)
+    | In_progress { whose_turn } ->
+      let new_decision = match whose_turn with
+        | `Player1 -> Decision.In_progress { whose_turn = `Player2 }
+        | `Player2 -> Decision.In_progress { whose_turn = `Enemy }
+        | `Enemy -> Decision.In_progress { whose_turn = `Player1 }
+      in
+      (* Reset player energy/block at start of their turn *)
+      let updated_t = match new_decision with
+        | In_progress { whose_turn = `Player1 } -> 
+          { t with player1 = Player_state.start_turn t.player1 }
+        | In_progress { whose_turn = `Player2 } -> 
+          { t with player2 = Player_state.start_turn t.player2 }
+        | _ -> t
+      in
+      { updated_t with decision = new_decision }
   ;;
 
   let process_enemy_turn t : t =
