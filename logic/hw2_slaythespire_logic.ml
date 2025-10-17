@@ -73,6 +73,23 @@ module Player_state = struct
     else Error "Not enough energy"
   ;;
 
+  (* Draw cards from draw pile to hand *)
+  let draw_cards t num_cards =
+    let rec draw acc_hand acc_draw_pile remaining =
+      if remaining <= 0 then
+        { t with hand = acc_hand; draw_pile = acc_draw_pile }
+      else (
+        match acc_draw_pile with
+        | [] ->
+          (* No more cards to draw, shuffle discard into draw pile *)
+          let shuffled_discard = List.permute t.discard_pile in
+          draw acc_hand shuffled_discard remaining
+        | card :: rest_draw ->
+          draw (card :: acc_hand) rest_draw (remaining - 1))
+    in
+    draw t.hand t.draw_pile num_cards
+  ;;
+
   let start_turn t = { t with energy = t.max_energy; block = 0 }
 end
 
