@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Slay the Spire - Mid Battle</title>
+    <link rel="stylesheet" href="slaythespire_styles.css">
+</head>
+<body>
+    <div class="game-container">
+        <!-- Game Header -->
+        <div class="game-header">
+            <h1 class="game-title">Slay the Spire</h1>
+            <div class="floor-info">Floor 1 - Intense Combat</div>
+        </div>
+
+        <!-- Game Status -->
+        <div class="game-status status-in-progress">
+            Player 2's Turn - Enemy attacks incoming!
+        </div>
+
+        <!-- Main Battle Area -->
+        <div class="battle-area">
+            <!-- Player Area (Left Side) -->
+            <div class="player-area">
+                <div class="player-card">
+                    <div class="player-name">Player 1</div>
+                    <div class="player-stats">
+                        <div class="stat">
+                            <div class="stat-label">Health</div>
+                            <div class="stat-value health">65/80</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">Energy</div>
+                            <div class="stat-value energy">2/3</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">Block</div>
+                            <div class="stat-value block">5</div>
+                        </div>
+                    </div>
+                    <div class="health-bar">
+                        <div class="health-fill" style="width: 81.25%"></div>
+                    </div>
+                    <div class="energy-bar">
+                        <div class="energy-fill" style="width: 66.67%"></div>
+                    </div>
+                </div>
+
+                <div class="player-card">
+                    <div class="player-name">Player 2</div>
+                    <div class="player-stats">
+                        <div class="stat">
+                            <div class="stat-label">Health</div>
+                            <div class="stat-value health">60/75</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">Energy</div>
+                            <div class="stat-value energy">3/3</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">Block</div>
+                            <div class="stat-value block">0</div>
+                        </div>
+                    </div>
+                    <div class="health-bar">
+                        <div class="health-fill" style="width: 80%"></div>
+                    </div>
+                    <div class="energy-bar">
+                        <div class="energy-fill" style="width: 100%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enemy Area (Right Side) -->
+            <div class="enemy-area">
+                <div class="enemy-card">
+                    <div class="enemy-name">Slime</div>
+                    <div class="player-stats">
+                        <div class="stat">
+                            <div class="stat-label">Health</div>
+                            <div class="stat-value health">32/50</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">Block</div>
+                            <div class="stat-value block">0</div>
+                        </div>
+                    </div>
+                    <div class="health-bar">
+                        <div class="health-fill" style="width: 64%"></div>
+                    </div>
+                    <div class="enemy-intent">
+                        Intent: Attack 8
+                    </div>
+                </div>
+
+                <div class="enemy-card">
+                    <div class="enemy-name">Goblin</div>
+                    <div class="player-stats">
+                        <div class="stat">
+                            <div class="stat-label">Health</div>
+                            <div class="stat-value health">25/30</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">Block</div>
+                            <div class="stat-value block">3</div>
+                        </div>
+                    </div>
+                    <div class="health-bar">
+                        <div class="health-fill" style="width: 83.33%"></div>
+                    </div>
+                    <div class="enemy-intent">
+                        Intent: Defend 5
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cards Area (Bottom) -->
+        <div class="cards-area">
+            <div class="cards-title">Player 2's Hand</div>
+            <div class="hand">
+                <div class="card">
+                    <div class="card-cost">1</div>
+                    <div class="card-name">Strike</div>
+                    <div class="card-description">Deal 6 damage</div>
+                </div>
+                <div class="card">
+                    <div class="card-cost">1</div>
+                    <div class="card-name">Heal</div>
+                    <div class="card-description">Restore 5 health</div>
+                </div>
+                <div class="card">
+                    <div class="card-cost">2</div>
+                    <div class="card-name">Special(Fireball)</div>
+                    <div class="card-description">Special ability: Fireball</div>
+                </div>
+                <div class="card">
+                    <div class="card-cost">1</div>
+                    <div class="card-name">Defend</div>
+                    <div class="card-description">Gain 5 block</div>
+                </div>
+                <div class="card">
+                    <div class="card-cost">1</div>
+                    <div class="card-name">Strike</div>
+                    <div class="card-description">Deal 6 damage</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

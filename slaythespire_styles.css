@@ -1,0 +1,295 @@
+/* Slay the Spire Game UI Styles */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    color: #ffffff;
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+.game-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    padding: 20px;
+}
+
+/* Header */
+.game-header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.game-title {
+    font-size: 2.5em;
+    color: #ff6b6b;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    margin-bottom: 10px;
+}
+
+.floor-info {
+    font-size: 1.2em;
+    color: #4ecdc4;
+    background: rgba(0,0,0,0.3);
+    padding: 10px 20px;
+    border-radius: 10px;
+    display: inline-block;
+}
+
+/* Main battle area */
+.battle-area {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex: 1;
+    margin: 20px 0;
+    padding: 20px;
+    background: rgba(0,0,0,0.2);
+    border-radius: 15px;
+    border: 2px solid #4ecdc4;
+}
+
+/* Player area */
+.player-area {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 300px;
+}
+
+.player-card {
+    background: linear-gradient(145deg, #2c3e50, #34495e);
+    border: 3px solid #3498db;
+    border-radius: 15px;
+    padding: 20px;
+    margin: 10px 0;
+    box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+    min-width: 250px;
+}
+
+.player-name {
+    font-size: 1.4em;
+    color: #3498db;
+    text-align: center;
+    margin-bottom: 15px;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+}
+
+.player-stats {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.stat {
+    text-align: center;
+}
+
+.stat-label {
+    font-size: 0.9em;
+    color: #bdc3c7;
+    margin-bottom: 5px;
+}
+
+.stat-value {
+    font-size: 1.2em;
+    font-weight: bold;
+}
+
+.health { color: #e74c3c; }
+.energy { color: #f39c12; }
+.block { color: #27ae60; }
+
+.health-bar, .energy-bar {
+    width: 100%;
+    height: 20px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 5px 0;
+}
+
+.health-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #e74c3c, #c0392b);
+    transition: width 0.3s ease;
+}
+
+.energy-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #f39c12, #e67e22);
+    transition: width 0.3s ease;
+}
+
+/* Enemy area */
+.enemy-area {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 300px;
+}
+
+.enemy-card {
+    background: linear-gradient(145deg, #8e44ad, #9b59b6);
+    border: 3px solid #e74c3c;
+    border-radius: 15px;
+    padding: 20px;
+    margin: 10px 0;
+    box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+    min-width: 250px;
+}
+
+.enemy-name {
+    font-size: 1.4em;
+    color: #e74c3c;
+    text-align: center;
+    margin-bottom: 15px;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+}
+
+.enemy-intent {
+    background: rgba(231, 76, 60, 0.2);
+    border: 2px solid #e74c3c;
+    border-radius: 8px;
+    padding: 10px;
+    text-align: center;
+    margin-top: 10px;
+    font-weight: bold;
+    color: #e74c3c;
+}
+
+/* Cards area */
+.cards-area {
+    background: rgba(0,0,0,0.3);
+    border-radius: 15px;
+    padding: 20px;
+    margin-top: 20px;
+    border: 2px solid #4ecdc4;
+}
+
+.cards-title {
+    text-align: center;
+    font-size: 1.5em;
+    color: #4ecdc4;
+    margin-bottom: 15px;
+}
+
+.hand {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.card {
+    background: linear-gradient(145deg, #2c3e50, #34495e);
+    border: 2px solid #4ecdc4;
+    border-radius: 10px;
+    padding: 15px;
+    min-width: 120px;
+    text-align: center;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+}
+
+.card-name {
+    font-size: 1.1em;
+    color: #4ecdc4;
+    margin-bottom: 8px;
+    font-weight: bold;
+}
+
+.card-cost {
+    background: #f39c12;
+    color: #2c3e50;
+    border-radius: 50%;
+    width: 25px;
+    height: 25px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 8px;
+    font-weight: bold;
+}
+
+.card-description {
+    font-size: 0.9em;
+    color: #bdc3c7;
+    line-height: 1.3;
+}
+
+/* Game status */
+.game-status {
+    text-align: center;
+    margin: 20px 0;
+    padding: 15px;
+    border-radius: 10px;
+    font-size: 1.3em;
+    font-weight: bold;
+}
+
+.status-in-progress {
+    background: rgba(52, 152, 219, 0.2);
+    border: 2px solid #3498db;
+    color: #3498db;
+}
+
+.status-victory {
+    background: rgba(39, 174, 96, 0.2);
+    border: 2px solid #27ae60;
+    color: #27ae60;
+}
+
+.status-defeat {
+    background: rgba(231, 76, 60, 0.2);
+    border: 2px solid #e74c3c;
+    color: #e74c3c;
+}
+
+/* Turn indicator */
+.turn-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.8);
+    color: #4ecdc4;
+    padding: 10px 20px;
+    border-radius: 20px;
+    font-size: 1.1em;
+    font-weight: bold;
+    border: 2px solid #4ecdc4;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .battle-area {
+        flex-direction: column;
+        gap: 20px;
+    }
+    
+    .player-area, .enemy-area {
+        min-width: auto;
+        width: 100%;
+    }
+    
+    .hand {
+        justify-content: center;
+    }
+    
+    .card {
+        min-width: 100px;
+    }
+}
