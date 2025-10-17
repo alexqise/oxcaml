@@ -6,7 +6,13 @@ module Card = struct
     | Defend
     | Heal
     | Special of string
-  [@@deriving sexp, to_string, compare, equal]
+  [@@deriving sexp, compare, equal]
+
+  let to_string = function
+    | Strike -> "Strike"
+    | Defend -> "Defend"
+    | Heal -> "Heal"
+    | Special s -> Printf.sprintf "Special(%s)" s
 
   let energy_cost = function
     | Strike -> 1
@@ -30,7 +36,7 @@ module Player_state = struct
     ; max_hp : int
     ; energy : int
     ; max_energy : int
-    ; block : int  (* Temporary defense that resets each turn *)
+    ; block : int (* Temporary defense that resets each turn *)
     ; hand : Card.t list
     ; draw_pile : Card.t list
     ; discard_pile : Card.t list
@@ -58,13 +64,8 @@ module Player_state = struct
     { t with health = Int.max 0 (t.health - actual_damage); block = remaining_block }
   ;;
 
-  let heal t amount =
-    { t with health = Int.min t.max_hp (t.health + amount) }
-  ;;
-
-  let gain_block t amount =
-    { t with block = t.block + amount }
-  ;;
+  let heal t amount = { t with health = Int.min t.max_hp (t.health + amount) }
+  let gain_block t amount = { t with block = t.block + amount }
 
   let spend_energy t cost =
     if t.energy >= cost
@@ -72,9 +73,7 @@ module Player_state = struct
     else Error "Not enough energy"
   ;;
 
-  let start_turn t =
-    { t with energy = t.max_energy; block = 0 }
-  ;;
+  let start_turn t = { t with energy = t.max_energy; block = 0 }
 end
 
 module Enemy_state = struct
@@ -83,7 +82,7 @@ module Enemy_state = struct
     ; health : int
     ; max_hp : int
     ; intent : string
-    ; damage_intent : int  (* How much damage the enemy plans to deal *)
+    ; damage_intent : int (* How much damage the enemy plans to deal *)
     }
   [@@deriving sexp, compare, equal]
 
@@ -92,10 +91,7 @@ module Enemy_state = struct
   ;;
 
   let is_alive t = t.health > 0
-
-  let take_damage t damage =
-    { t with health = Int.max 0 (t.health - damage) }
-  ;;
+  let take_damage t damage = { t with health = Int.max 0 (t.health - damage) }
 
   let get_action t =
     match t.intent with
@@ -134,27 +130,52 @@ module Game_state = struct
       | Invalid_floor
       | Empty_deck
       | Invalid_player_count
-    [@@deriving sexp, compare]
+    [@@deriving sexp, compare, equal]
   end
 
-  let create ~floor ~player1_deck ~player2_deck ~enemies : (t, Create_error.t list) Result.t =
+  let create ~floor ~player1_deck ~player2_deck ~enemies
+    : (t, Create_error.t list) Result.t
+    =
     let errors = [] in
     let errors = if floor <= 0 then Create_error.Invalid_floor :: errors else errors in
-    let errors = if List.is_empty player1_deck then Create_error.Empty_deck :: errors else errors in
-    let errors = if List.is_empty player2_deck then Create_error.Empty_deck :: errors else errors in
-    
+    let errors =
+      if List.is_empty player1_deck then Create_error.Empty_deck :: errors else errors
+    in
+    let errors =
+      if List.is_empty player2_deck then Create_error.Empty_deck :: errors else errors
+    in
     match errors with
     | [] ->
-      let player1 = Player_state.create ~name:"Player 1" ~max_hp:80 ~max_energy:3 ~starting_deck:player1_deck in
-      let player2 = Player_state.create ~name:"Player 2" ~max_hp:75 ~max_energy:3 ~starting_deck:player2_deck in
-      Ok { player1; player2; enemies; floor; decision = In_progress { whose_turn = `Player1 }; turn_count = 1 }
+      let player1 =
+        Player_state.create
+          ~name:"Player 1"
+          ~max_hp:80
+          ~max_energy:3
+          ~starting_deck:player1_deck
+      in
+      let player2 =
+        Player_state.create
+          ~name:"Player 2"
+          ~max_hp:75
+          ~max_energy:3
+          ~starting_deck:player2_deck
+      in
+      Ok
+        { player1
+        ; player2
+        ; enemies
+        ; floor
+        ; decision = In_progress { whose_turn = `Player1 }
+        ; turn_count = 1
+        }
     | _ -> Error errors
   ;;
 
   let check_game_over t =
-    let players_alive = Player_state.is_alive t.player1 || Player_state.is_alive t.player2 in
+    let players_alive =
+      Player_state.is_alive t.player1 || Player_state.is_alive t.player2
+    in
     let enemies_alive = List.exists t.enemies ~f:Enemy_state.is_alive in
-    
     match players_alive, enemies_alive with
     | false, _ -> Decision.Defeat
     | true, false -> Decision.Victory
@@ -173,8 +194,13 @@ module Game_state = struct
   end
 
   module Move = struct
-    type target = [ `Enemy of int | `Player1 | `Player2 ]
-    
+    type target =
+      [ `Enemy of int
+      | `Player1
+      | `Player2
+      ]
+    [@@deriving sexp, compare, equal]
+
     type t =
       { card : Card.t
       ; target : target
@@ -213,7 +239,7 @@ module Game_state = struct
     | Card.Heal, `Player player -> `Player (Player_state.heal player 5)
     | Card.Special "Fireball", `Enemy enemy -> `Enemy (Enemy_state.take_damage enemy 12)
     | Card.Special "Shield", `Player player -> `Player (Player_state.gain_block player 10)
-    | _ -> target_entity  (* Invalid combinations do nothing *)
+    | _ -> target_entity (* Invalid combinations do nothing *)
   ;;
 
   let update_target_in_game_state t target updated_entity =
@@ -221,10 +247,11 @@ module Game_state = struct
     | `Player1, `Player updated_player -> { t with player1 = updated_player }
     | `Player2, `Player updated_player -> { t with player2 = updated_player }
     | `Enemy index, `Enemy updated_enemy ->
-      let updated_enemies = List.mapi t.enemies ~f:(fun i enemy ->
-        if i = index then updated_enemy else enemy) in
+      let updated_enemies =
+        List.mapi t.enemies ~f:(fun i enemy -> if i = index then updated_enemy else enemy)
+      in
       { t with enemies = updated_enemies }
-    | _ -> t  (* Mismatched target/entity type *)
+    | _ -> t (* Mismatched target/entity type *)
   ;;
 
   let remove_card_from_hand hand card =
@@ -257,7 +284,9 @@ module Game_state = struct
                (match remove_card_from_hand player_after_energy.hand move.card with
                 | None -> Error Invalid_card
                 | Some updated_hand ->
-                  let player_with_updated_hand = { player_after_energy with hand = updated_hand } in
+                  let player_with_updated_hand =
+                    { player_after_energy with hand = updated_hand }
+                  in
                   (* Get target *)
                   (match get_target t move.target with
                    | None -> Error Invalid_target
@@ -265,19 +294,25 @@ module Game_state = struct
                      (* Apply card effect *)
                      let updated_entity = apply_card_effect move.card target_entity in
                      (* Update game state with new player and target *)
-                     let t_with_updated_player = update_current_player t player_with_updated_hand in
-                     let t_with_updated_target = update_target_in_game_state t_with_updated_player move.target updated_entity in
+                     let t_with_updated_player =
+                       update_current_player t player_with_updated_hand
+                     in
+                     let t_with_updated_target =
+                       update_target_in_game_state
+                         t_with_updated_player
+                         move.target
+                         updated_entity
+                     in
                      (* Check for game over and advance turn *)
                      let new_decision = check_game_over t_with_updated_target in
-                     let final_decision = 
-                       if Decision.is_game_over new_decision 
+                     let final_decision =
+                       if Decision.is_game_over new_decision
                        then new_decision
                        else (
                          match whose_turn with
                          | `Player1 -> Decision.In_progress { whose_turn = `Player2 }
                          | `Player2 -> Decision.In_progress { whose_turn = `Enemy }
-                         | `Enemy -> Decision.In_progress { whose_turn = `Player1 }
-                       )
+                         | `Enemy -> Decision.In_progress { whose_turn = `Player1 })
                      in
                      Ok { t_with_updated_target with decision = final_decision })))))
   ;;
@@ -286,21 +321,19 @@ module Game_state = struct
     match t.decision with
     | In_progress { whose_turn = `Enemy } ->
       (* Simple AI: each alive enemy attacks player1 *)
-      let updated_player1 = 
+      let updated_player1 =
         List.fold t.enemies ~init:t.player1 ~f:(fun acc_player enemy ->
           if Enemy_state.is_alive enemy
           then (
             match Enemy_state.get_action enemy with
             | `Attack damage -> Player_state.take_damage acc_player damage
-            | _ -> acc_player
-          )
-          else acc_player
-        )
+            | _ -> acc_player)
+          else acc_player)
       in
       let updated_t = { t with player1 = updated_player1 } in
       let new_decision = check_game_over updated_t in
-      let final_decision = 
-        if Decision.is_game_over new_decision 
+      let final_decision =
+        if Decision.is_game_over new_decision
         then new_decision
         else Decision.In_progress { whose_turn = `Player1 }
       in
@@ -312,9 +345,8 @@ module Game_state = struct
     match get_current_player t with
     | None -> []
     | Some player ->
-      let targets = 
-        [ `Player1; `Player2 ] @ 
-        (List.mapi t.enemies ~f:(fun i _ -> `Enemy i))
+      let targets =
+        [ `Player1; `Player2 ] @ List.mapi t.enemies ~f:(fun i _ -> `Enemy i)
       in
       List.cartesian_product player.hand targets
       |> List.map ~f:(fun (card, target) -> { Move.card; target })

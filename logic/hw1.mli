@@ -1,5 +1,5 @@
-open! Core
 (** A card-based battle game interface *)
+open! Core
 
 (** A single card in a deck/hand *)
 module Card : sig
@@ -28,7 +28,7 @@ module Enemy_state : sig
   type t =
     { kind : string
     ; health : int
-    ; intent : string  (** e.g. "attack 10", "buff", etc. *)
+    ; intent : string (** e.g. "attack 10", "buff", etc. *)
     }
 end
 
@@ -53,8 +53,12 @@ end
 
 (** A move: which card is played and on which target *)
 module Move : sig
-  type target = [ `Enemy of int | `Player1 | `Player2 ]
-  
+  type target =
+    [ `Enemy of int
+    | `Player1
+    | `Player2
+    ]
+
   type t =
     { card : Card.t
     ; target : target

@@ -10,11 +10,11 @@ end
 (* One player's state *)
 module Player_state = struct
   type t =
-    { name    : string
-    ; health  : int
-    ; max_hp  : int
-    ; energy  : int
-    ; hand    : Card.t list
+    { name : string
+    ; health : int
+    ; max_hp : int
+    ; energy : int
+    ; hand : Card.t list
     ; draw_pile : Card.t list
     ; discard_pile : Card.t list
     }
@@ -23,9 +23,9 @@ end
 (* Enemy or boss state *)
 module Enemy_state = struct
   type t =
-    { kind   : string
+    { kind : string
     ; health : int
-    ; intent : string  (* e.g. "attack 10", "buff", etc. *)
+    ; intent : string (* e.g. "attack 10", "buff", etc. *)
     }
 end
 
@@ -40,19 +40,24 @@ end
 (* Complete game state *)
 module Game_state = struct
   type t =
-    { player1  : Player_state.t
-    ; player2  : Player_state.t
-    ; enemies  : Enemy_state.t list
-    ; floor    : int
+    { player1 : Player_state.t
+    ; player2 : Player_state.t
+    ; enemies : Enemy_state.t list
+    ; floor : int
     ; decision : Decision.t
     }
 end
 
 (* A move: which card is played and on which target *)
 module Move = struct
-  type target = [ `Enemy of int | `Player1 | `Player2 ]
+  type target =
+    [ `Enemy of int
+    | `Player1
+    | `Player2
+    ]
+
   type t =
-    { card   : Card.t
+    { card : Card.t
     ; target : target
     }
 end
@@ -77,8 +82,8 @@ let initial_state : Game_state.t =
       ; draw_pile = [ Card.Strike; Card.Defend; Card.Heal ]
       ; discard_pile = []
       }
-  ; enemies =
-      [ { kind = "Slime"; health = 50; intent = "attack 8" } ]
+  ; enemies = [ { kind = "Slime"; health = 50; intent = "attack 8" } ]
   ; floor = 1
   ; decision = In_progress { whose_turn = `Player1 }
   }
+;;
