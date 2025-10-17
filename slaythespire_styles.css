@@ -8,7 +8,7 @@
 
 body {
     font-family: 'Arial', sans-serif;
-    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    background: url('assets/background.jpg') center center / cover no-repeat fixed;
     color: #ffffff;
     min-height: 100vh;
     overflow-x: hidden;
@@ -37,7 +37,6 @@ body {
 .floor-info {
     font-size: 1.2em;
     color: #4ecdc4;
-    background: rgba(0,0,0,0.3);
     padding: 10px 20px;
     border-radius: 10px;
     display: inline-block;
@@ -51,26 +50,27 @@ body {
     flex: 1;
     margin: 20px 0;
     padding: 20px;
-    background: rgba(0,0,0,0.2);
     border-radius: 15px;
-    border: 2px solid #4ecdc4;
+    border: none;
 }
 
 /* Player area */
 .player-area {
     display: flex;
-    flex-direction: column;
-    align-items: center;
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 16px;
     min-width: 300px;
 }
 
 .player-card {
-    background: linear-gradient(145deg, #2c3e50, #34495e);
-    border: 3px solid #3498db;
+    background: transparent;
+    border: none;
     border-radius: 15px;
     padding: 20px;
     margin: 10px 0;
-    box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+    box-shadow: none;
     min-width: 250px;
 }
 
@@ -131,18 +131,20 @@ body {
 /* Enemy area */
 .enemy-area {
     display: flex;
-    flex-direction: column;
-    align-items: center;
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 16px;
     min-width: 300px;
 }
 
 .enemy-card {
-    background: linear-gradient(145deg, #8e44ad, #9b59b6);
-    border: 3px solid #e74c3c;
+    background: transparent;
+    border: none;
     border-radius: 15px;
     padding: 20px;
     margin: 10px 0;
-    box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+    box-shadow: none;
     min-width: 250px;
 }
 
@@ -156,7 +158,7 @@ body {
 
 .enemy-intent {
     background: rgba(231, 76, 60, 0.2);
-    border: 2px solid #e74c3c;
+    border: none;
     border-radius: 8px;
     padding: 10px;
     text-align: center;
@@ -167,11 +169,10 @@ body {
 
 /* Cards area */
 .cards-area {
-    background: rgba(0,0,0,0.3);
     border-radius: 15px;
     padding: 20px;
     margin-top: 20px;
-    border: 2px solid #4ecdc4;
+    border: none;
 }
 
 .cards-title {
@@ -189,19 +190,36 @@ body {
 }
 
 .card {
-    background: linear-gradient(145deg, #2c3e50, #34495e);
-    border: 2px solid #4ecdc4;
+    background: transparent;
+    border: none;
     border-radius: 10px;
-    padding: 15px;
-    min-width: 120px;
+    padding: 0;
+    width: 160px;
+    height: 230px;
     text-align: center;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    box-shadow: none;
+    transition: transform 0.2s ease;
 }
 
 .card:hover {
     transform: translateY(-5px);
-    box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+}
+
+/* Ensure all card images fill consistently */
+.card img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 10px;
+}
+
+/* Character/enemy images */
+.char-img {
+    width: 200px;
+    height: auto;
+    border-radius: 10px;
+    display: block;
+    margin: 0 auto 12px;
 }
 
 .card-name {
@@ -241,20 +259,20 @@ body {
 }
 
 .status-in-progress {
-    background: rgba(52, 152, 219, 0.2);
-    border: 2px solid #3498db;
+    background: rgba(52, 152, 219, 0.25);
+    border: none;
     color: #3498db;
 }
 
 .status-victory {
-    background: rgba(39, 174, 96, 0.2);
-    border: 2px solid #27ae60;
+    background: rgba(39, 174, 96, 0.25);
+    border: none;
     color: #27ae60;
 }
 
 .status-defeat {
-    background: rgba(231, 76, 60, 0.2);
-    border: 2px solid #e74c3c;
+    background: rgba(231, 76, 60, 0.25);
+    border: none;
     color: #e74c3c;
 }
 
