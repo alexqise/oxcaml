@@ -103,27 +103,41 @@ module Player_state = struct
 end
 
 module Enemy_state = struct
+  (* Enemy intent variants - no polymorphic strings *)
+  type intent =
+    | Attack of int  (* Attack with damage amount *)
+    | Defend of int  (* Gain block amount *)
+    | Wait           (* Do nothing *)
+  [@@deriving sexp, compare, equal]
+
   type t =
     { kind : string
     ; health : int
     ; max_hp : int
-    ; intent : string
-    ; damage_intent : int (* How much damage the enemy plans to deal *)
+    ; block : int    (* Defensive block, like players *)
+    ; intent : intent (* What the enemy plans to do *)
     }
   [@@deriving sexp, compare, equal]
 
-  let create ~kind ~max_hp ~intent ~damage_intent =
-    { kind; health = max_hp; max_hp; intent; damage_intent }
+  (* Create a new enemy with intent variant *)
+  let create ~kind ~max_hp ~intent =
+    { kind; health = max_hp; max_hp; block = 0; intent }
   ;;
 
   let is_alive t = t.health > 0
-  let take_damage t damage = { t with health = Int.max 0 (t.health - damage) }
+  
+  (* Take damage with block protection, like players *)
+  let take_damage t damage =
+    let actual_damage = Int.max 0 (damage - t.block) in
+    let remaining_block = Int.max 0 (t.block - damage) in
+    { t with health = Int.max 0 (t.health - actual_damage); block = remaining_block }
+  ;;
 
-  let get_action t =
-    match t.intent with
-    | "attack" -> `Attack t.damage_intent
-    | "defend" -> `Defend
-    | _ -> `Wait
+  (* Add block to enemy for defense *)
+  let gain_block t amount = { t with block = t.block + amount }
+
+  (* Get the action the enemy will perform - returns intent directly, no polymorphic variants *)
+  let get_action t = t.intent
   ;;
 end
 
@@ -289,54 +303,76 @@ module Game_state = struct
     remove_first [] hand
   ;;
 
-  let make_move t (move : Move.t) : (t, Move_error.t) Result.t =
+  (* Helper: validate game state and get current player *)
+  let validate_and_get_player t : (Player_state.t, Move_error.t) Result.t =
     match t.decision with
     | Victory | Defeat -> Error Game_is_over
     | In_progress { whose_turn = `Enemy } -> Error Not_player_turn
     | In_progress _ ->
       (match get_current_player t with
        | None -> Error Not_player_turn
-       | Some current_player ->
-         (* Check if card is in hand *)
-         (match List.find current_player.hand ~f:(Card.equal move.card) with
-          | None -> Error Card_not_in_hand
-          | Some _ ->
-            (* Check energy cost *)
-            let cost = Card.energy_cost move.card in
-            (match Player_state.spend_energy current_player cost with
-             | Error _ -> Error Not_enough_energy
-             | Ok player_after_energy ->
-               (* Remove card from hand *)
-               (match remove_card_from_hand player_after_energy.hand move.card with
-                | None -> Error Invalid_card
-                | Some updated_hand ->
-                  let player_with_updated_hand =
-                    { player_after_energy with hand = updated_hand }
-                  in
-                  (* Get target *)
-                  (match get_target t move.target with
-                   | None -> Error Invalid_target
-                   | Some target_entity ->
-                     (* Apply card effect *)
-                     let updated_entity = apply_card_effect move.card target_entity in
-                     (* Update game state with new player and target *)
-                     let t_with_updated_player =
-                       update_current_player t player_with_updated_hand
-                     in
-                     let t_with_updated_target =
-                       update_target_in_game_state
-                         t_with_updated_player
-                         move.target
-                         updated_entity
-                     in
-                     (* Check for game over but DON'T advance turn - players can play multiple cards *)
-                     let new_decision = check_game_over t_with_updated_target in
-                     let final_decision =
-                       if Decision.is_game_over new_decision
-                       then new_decision
-                       else t_with_updated_target.decision  (* Keep same turn *)
-                     in
-                     Ok { t_with_updated_target with decision = final_decision })))))
+       | Some player -> Ok player)
+  ;;
+
+  (* Helper: validate card is in hand *)
+  let validate_card_in_hand (player : Player_state.t) (card : Card.t) 
+    : (unit, Move_error.t) Result.t =
+    match List.find player.Player_state.hand ~f:(Card.equal card) with
+    | None -> Error Card_not_in_hand
+    | Some _ -> Ok ()
+  ;;
+
+  (* Helper: spend energy and remove card from hand *)
+  let spend_energy_and_remove_card (player : Player_state.t) (card : Card.t)
+    : (Player_state.t, Move_error.t) Result.t =
+    let cost = Card.energy_cost card in
+    let open Result.Let_syntax in
+    (* Use bind to chain operations *)
+    let%bind player_after_energy = 
+      Player_state.spend_energy player cost
+      |> Result.map_error ~f:(fun _ -> Move_error.Not_enough_energy)
+    in
+    let%bind updated_hand = 
+      match remove_card_from_hand player_after_energy.Player_state.hand card with
+      | None -> Error Move_error.Invalid_card
+      | Some hand -> Ok hand
+    in
+    Ok { player_after_energy with Player_state.hand = updated_hand }
+  ;;
+
+  (* Helper: apply move to target and update game state *)
+  let apply_move_to_target (t : t) (move : Move.t) (player_with_card_played : Player_state.t)
+    : (t, Move_error.t) Result.t =
+    match get_target t move.Move.target with
+    | None -> Error Move_error.Invalid_target
+    | Some target_entity ->
+      (* Apply card effect to target *)
+      let updated_entity = apply_card_effect move.Move.card target_entity in
+      (* Update game state with new player and target *)
+      let t_with_updated_player = update_current_player t player_with_card_played in
+      let t_with_updated_target =
+        update_target_in_game_state t_with_updated_player move.Move.target updated_entity
+      in
+      (* Check for game over but keep same turn *)
+      let new_decision = check_game_over t_with_updated_target in
+      let final_decision =
+        if Decision.is_game_over new_decision
+        then new_decision
+        else t_with_updated_target.decision
+      in
+      Ok { t_with_updated_target with decision = final_decision }
+  ;;
+
+  (* Main make_move function using Result.bind to reduce nesting *)
+  let make_move t (move : Move.t) : (t, Move_error.t) Result.t =
+    let open Result.Let_syntax in
+    (* Chain all validations and updates using bind *)
+    let%bind current_player = validate_and_get_player t in
+    let%bind () = validate_card_in_hand current_player move.card in
+    let%bind player_with_card_played = 
+      spend_energy_and_remove_card current_player move.card 
+    in
+    apply_move_to_target t move player_with_card_played
   ;;
 
   (* End the current player's turn and advance to next player/enemy *)
@@ -344,10 +380,10 @@ module Game_state = struct
     match t.decision with
     | Victory | Defeat -> t  (* Game over, can't end turn *)
     | In_progress { whose_turn } ->
-      let new_decision = match whose_turn with
-        | `Player1 -> Decision.In_progress { whose_turn = `Player2 }
-        | `Player2 -> Decision.In_progress { whose_turn = `Enemy }
-        | `Enemy -> Decision.In_progress { whose_turn = `Player1 }
+      let new_decision: Decision.t = match whose_turn with
+        | `Player1 -> In_progress { whose_turn = `Player2 }
+        | `Player2 -> In_progress { whose_turn = `Enemy }
+        | `Enemy -> In_progress { whose_turn = `Player1 }
       in
       (* Reset player energy/block at start of their turn *)
       let updated_t = match new_decision with
@@ -363,17 +399,22 @@ module Game_state = struct
   let process_enemy_turn t : t =
     match t.decision with
     | In_progress { whose_turn = `Enemy } ->
-      (* Simple AI: each alive enemy attacks player1 *)
-      let updated_player1 =
-        List.fold t.enemies ~init:t.player1 ~f:(fun acc_player enemy ->
+      (* Process each enemy action using intent enum, not polymorphic variants *)
+      let updated_player1, updated_enemies =
+        List.fold t.enemies ~init:(t.player1, []) ~f:(fun (acc_player, acc_enemies) enemy ->
           if Enemy_state.is_alive enemy
           then (
             match Enemy_state.get_action enemy with
-            | `Attack damage -> Player_state.take_damage acc_player damage
-            | _ -> acc_player)
-          else acc_player)
+            | Enemy_state.Attack damage -> 
+              (* Enemy attacks player *)
+              (Player_state.take_damage acc_player damage, enemy :: acc_enemies)
+            | Enemy_state.Defend block_amount -> 
+              (* Enemy gains block *)
+              (acc_player, Enemy_state.gain_block enemy block_amount :: acc_enemies)
+            | Enemy_state.Wait -> (acc_player, enemy :: acc_enemies))
+          else (acc_player, enemy :: acc_enemies))
       in
-      let updated_t = { t with player1 = updated_player1 } in
+      let updated_t = { t with player1 = updated_player1; enemies = List.rev updated_enemies } in
       let new_decision = check_game_over updated_t in
       let final_decision =
         if Decision.is_game_over new_decision

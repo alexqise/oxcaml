@@ -14,6 +14,11 @@ module Enemy_state = STS.Enemy_state
 module Decision = STS.Decision
 module Game_state = STS.Game_state
 
+(* Create shortcuts for Enemy intent constructors - no polymorphic variants! *)
+let attack damage = Hw2_slaythespire_logic.Enemy_state.Attack damage
+let defend block = Hw2_slaythespire_logic.Enemy_state.Defend block
+let wait = Hw2_slaythespire_logic.Enemy_state.Wait
+
 let ok_exn result = Result.ok result |> Option.value_exn
 
 (* Helper functions for debugging *)
@@ -26,7 +31,7 @@ let print_player_state state =
 (* Helper to create test games quickly *)
 let create_test_game () =
   let basic_deck = [Card.Strike; Card.Defend; Card.Heal] in
-  let goblin = Enemy_state.create ~kind:"Goblin" ~max_hp:20 ~intent:"attack" ~damage_intent:5 in
+  let goblin = Enemy_state.create ~kind:"Goblin" ~max_hp:20 ~intent:(attack 5) in
   match Game_state.create ~floor:1 ~player1_deck:basic_deck ~player2_deck:basic_deck ~enemies:[goblin] with
   | Ok game -> game
   | Error _ -> failwith "Failed to create test game"
@@ -128,73 +133,75 @@ let%expect_test "Player_state healing and health cap" =
  * ENEMY STATE TESTS    *
  * ==================== *)
 
-let%test "Enemy_state.create works correctly" =
-  let dragon = Enemy_state.create ~kind:"Dragon" ~max_hp:150 ~intent:"attack" ~damage_intent:20 in
+let%expect_test "Enemy_state.create works correctly" =
+  let dragon = Enemy_state.create ~kind:"Dragon" ~max_hp:150 ~intent:(attack 20) in
   
-  String.equal dragon.kind "Dragon" &&
-  Int.equal dragon.health 150 &&  
-  Int.equal dragon.max_hp 150 &&
-  String.equal dragon.intent "attack" &&
-  Int.equal dragon.damage_intent 20
+  print_s [%message "Dragon created"
+    ~kind:(dragon.kind : string)
+    ~health:(dragon.health : int)
+    ~max_hp:(dragon.max_hp : int)
+    ~block:(dragon.block : int)
+    ~intent:(dragon.intent : Hw2_slaythespire_logic.Enemy_state.intent)];
+  [%expect {|
+    ("Dragon created" (kind Dragon) (health 150) (max_hp 150) (block 0)
+     (intent (Attack 20))) |}]
 
-let%test "Enemy_state damage and survival" =
-  let goblin = Enemy_state.create ~kind:"Goblin" ~max_hp:25 ~intent:"attack" ~damage_intent:5 in
+let%expect_test "Enemy_state damage and survival" =
+  let goblin = Enemy_state.create ~kind:"Goblin" ~max_hp:25 ~intent:(attack 5) in
   
   (* Take damage *)
   let wounded_goblin = Enemy_state.take_damage goblin 10 in
-  let damage_case = Int.equal wounded_goblin.health 15 && Bool.equal (Enemy_state.is_alive wounded_goblin) true in
+  print_s [%message "Wounded goblin"
+    ~health:(wounded_goblin.health : int)
+    ~alive:(Enemy_state.is_alive wounded_goblin : bool)];
+  [%expect {| ("Wounded goblin" (health 15) (alive true)) |}];
   
   (* Take lethal damage *)
   let dead_goblin = Enemy_state.take_damage goblin 30 in
-  let death_case = Int.equal dead_goblin.health 0 && Bool.equal (Enemy_state.is_alive dead_goblin) false in
-  
-  damage_case && death_case
+  print_s [%message "Dead goblin"
+    ~health:(dead_goblin.health : int)
+    ~alive:(Enemy_state.is_alive dead_goblin : bool)];
+  [%expect {| ("Dead goblin" (health 0) (alive false)) |}]
 
-let%test "Enemy_state.get_action works" =
-  let attacker = Enemy_state.create ~kind:"Orc" ~max_hp:50 ~intent:"attack" ~damage_intent:8 in
-  let defender = Enemy_state.create ~kind:"Guard" ~max_hp:40 ~intent:"defend" ~damage_intent:0 in
+let%expect_test "Enemy_state.get_action works" =
+  let attacker = Enemy_state.create ~kind:"Orc" ~max_hp:50 ~intent:(attack 8) in
+  let defender = Enemy_state.create ~kind:"Guard" ~max_hp:40 ~intent:(defend 5) in
   
-  (* Test attack action *)
-  let attack_action = 
-    match Enemy_state.get_action attacker with
-    | `Attack 8 -> true
-    | _ -> false
-  in
+  (* Test attack action - using proper enum, not polymorphic variants *)
+  (match Enemy_state.get_action attacker with
+   | Hw2_slaythespire_logic.Enemy_state.Attack damage -> 
+     print_s [%message "Attacker action" ~damage:(damage : int)];
+   | _ -> print_endline "Unexpected action");
+  [%expect {| ("Attacker action" (damage 8)) |}];
   
-  (* Test defend action *)
-  let defend_action =
-    match Enemy_state.get_action defender with
-    | `Defend -> true
-    | _ -> false
-  in
-  
-  attack_action && defend_action
+  (* Test defend action - using proper enum *)
+  (match Enemy_state.get_action defender with
+   | Hw2_slaythespire_logic.Enemy_state.Defend _ -> print_endline "Defender uses defend"
+   | _ -> print_endline "Unexpected action");
+  [%expect {| Defender uses defend |}]
 
 (* ==================== *
  * GAME STATE TESTS     *
  * ==================== *)
 
-let%test "Game_state.create validates inputs" =
+let%expect_test "Game_state.create validates inputs" =
   let valid_deck = [Card.Strike; Card.Defend] in
-  let enemies = [Enemy_state.create ~kind:"Slime" ~max_hp:30 ~intent:"attack" ~damage_intent:4] in
+  let enemies = [Enemy_state.create ~kind:"Slime" ~max_hp:30 ~intent:(attack 4)] in
   
   (* Valid creation *)
   let valid_game = Game_state.create ~floor:2 ~player1_deck:valid_deck ~player2_deck:valid_deck ~enemies in
-  let valid_case = 
-    match valid_game with
-    | Ok _ -> true
-    | Error _ -> false
-  in
+  (match valid_game with
+   | Ok _ -> print_endline "Valid game created"
+   | Error _ -> print_endline "Failed to create valid game");
+  [%expect {| Valid game created |}];
   
   (* Invalid floor *)
   let invalid_floor = Game_state.create ~floor:0 ~player1_deck:valid_deck ~player2_deck:valid_deck ~enemies in
-  let floor_error = 
-    match invalid_floor with
-    | Error errors when List.mem errors ~equal:Game_state.Create_error.equal Game_state.Create_error.Invalid_floor -> true
-    | _ -> false
-  in
-  
-  valid_case && floor_error
+  (match invalid_floor with
+   | Error errors when List.mem errors ~equal:Game_state.Create_error.equal Game_state.Create_error.Invalid_floor -> 
+     print_endline "Invalid floor error detected"
+   | _ -> print_endline "Unexpected result");
+  [%expect {| Invalid floor error detected |}]
 
 let%test "Game_state.make_move validates moves" =
   let game = create_test_game () in
@@ -252,9 +259,9 @@ let%expect_test "Complete move scenario" =
  * INTEGRATION TESTS    *
  * ==================== *)
 
-let%test "Full battle sequence" =
+let%expect_test "Full battle sequence" =
   let basic_deck = [Card.Strike; Card.Defend; Card.Strike] in
-  let monster = Enemy_state.create ~kind:"Beast" ~max_hp:20 ~intent:"attack" ~damage_intent:6 in
+  let monster = Enemy_state.create ~kind:"Beast" ~max_hp:20 ~intent:(attack 6) in
   let game = match Game_state.create ~floor:1 ~player1_deck:basic_deck ~player2_deck:basic_deck ~enemies:[monster] with
   | Ok game -> game
   | Error _ -> failwith "Failed to create test game"
@@ -284,16 +291,17 @@ let%test "Full battle sequence" =
   | Error _ -> failwith "Failed to make move"
   in
   
-  (* Check enemy is defeated: 20 HP - 6 damage - 6 damage = 8 HP *)
-  let enemy_alive = Enemy_state.is_alive (List.nth_exn move2.enemies 0) in
-  
-  (* Enemy should have 8 HP left, so still alive *)
-  Bool.equal enemy_alive true
+  (* Check enemy health: 20 HP - 6 damage - 6 damage = 8 HP *)
+  let enemy = List.nth_exn move2.enemies 0 in
+  print_s [%message "Enemy after battle"
+    ~health:(enemy.health : int)
+    ~alive:(Enemy_state.is_alive enemy : bool)];
+  [%expect {| ("Enemy after battle" (health 8) (alive true)) |}]
 
-let%test "Enemy turn processing" =
+let%expect_test "Enemy turn processing" =
   let deck = [Card.Strike] in
   let enemies = [
-    Enemy_state.create ~kind:"Orc" ~max_hp:30 ~intent:"attack" ~damage_intent:8
+    Enemy_state.create ~kind:"Orc" ~max_hp:30 ~intent:(attack 8)
   ] in
   let game = match Game_state.create ~floor:1 ~player1_deck:deck ~player2_deck:deck ~enemies:enemies with
   | Ok game -> game
@@ -304,16 +312,13 @@ let%test "Enemy turn processing" =
   let enemy_turn = { wounded_game with decision = Decision.In_progress { whose_turn = `Enemy } } in
   let result = Game_state.process_enemy_turn enemy_turn in
   
-  (* Player should take 8 damage *)
-  let health_check = result.player1.health = 42 in
-  
-  (* Should advance to player turn *)
-  let turn_check = match result.decision with
-    | Decision.In_progress { whose_turn = `Player1 } -> true
-    | _ -> false
-  in
-  
-  health_check && turn_check
+  (* Player should take 8 damage: 50 - 8 = 42 *)
+  print_s [%message "After enemy turn"
+    ~player_health:(result.player1.health : int)
+    ~decision:(result.decision : Decision.t)];
+  [%expect {|
+    ("After enemy turn" (player_health 42)
+     (decision (In_progress (whose_turn Player1)))) |}]
 
 (* ==================== *
  * EDGE CASE TESTS     *
@@ -383,7 +388,7 @@ let random_walk (initial_state : Game_state.t) ~random_seed =
 let%expect_test "Random card game walk - various outcomes" =
   (* Create a test game *)
   let basic_deck = [Card.Strike; Card.Defend; Card.Heal; Card.Strike] in
-  let enemy = Enemy_state.create ~kind:"Orc" ~max_hp:25 ~intent:"attack" ~damage_intent:8 in
+  let enemy = Enemy_state.create ~kind:"Orc" ~max_hp:25 ~intent:(attack 8) in
   let game = match Game_state.create ~floor:1 ~player1_deck:basic_deck ~player2_deck:basic_deck ~enemies:[enemy] with
     | Ok g -> g
     | Error _ -> failwith "Failed to create test game"
@@ -407,7 +412,7 @@ let%expect_test "Random card game walk - various outcomes" =
       ((name "Player 2") (health 69) (max_hp 75) (energy 3) (max_energy 3)
        (block 0) (hand ()) (draw_pile ()) (discard_pile ())))
      (enemies
-      (((kind Orc) (health 13) (max_hp 25) (intent attack) (damage_intent 8))))
+      (((kind Orc) (health 13) (max_hp 25) (block 0) (intent (Attack 8)))))
      (floor 1) (decision (In_progress (whose_turn Enemy))) (turn_count 164))
     |}];
   
@@ -422,7 +427,7 @@ let%expect_test "Random card game walk - various outcomes" =
       ((name "Player 2") (health 51) (max_hp 75) (energy 3) (max_energy 3)
        (block 0) (hand ()) (draw_pile ()) (discard_pile ())))
      (enemies
-      (((kind Orc) (health 13) (max_hp 25) (intent attack) (damage_intent 8))))
+      (((kind Orc) (health 13) (max_hp 25) (block 0) (intent (Attack 8)))))
      (floor 1) (decision (In_progress (whose_turn Player1))) (turn_count 162))
     |}]
 ;;
@@ -483,7 +488,7 @@ let analyze_random_game (game : Game_state.t) ~random_seed =
 
 let%expect_test "Random game analysis" =
   let competitive_deck = [Card.Strike; Card.Defend; Card.Heal; Card.Special "Fireball"] in
-  let boss = Enemy_state.create ~kind:"Boss" ~max_hp:40 ~intent:"attack" ~damage_intent:12 in
+  let boss = Enemy_state.create ~kind:"Boss" ~max_hp:40 ~intent:(attack 12) in
   let game = match Game_state.create ~floor:3 ~player1_deck:competitive_deck ~player2_deck:competitive_deck ~enemies:[boss] with
     | Ok g -> g
     | Error _ -> failwith "Failed to create test game"

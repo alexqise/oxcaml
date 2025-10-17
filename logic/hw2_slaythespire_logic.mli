@@ -62,26 +62,36 @@ end
 
 (** Enemy state and behavior *)
 module Enemy_state : sig
+  (** Enemy intent variants - type-safe, no polymorphic strings *)
+  type intent =
+    | Attack of int  (** Attack with damage amount *)
+    | Defend of int  (** Gain block amount *)
+    | Wait           (** Do nothing *)
+  [@@deriving sexp, compare, equal]
+
   type t =
     { kind : string
     ; health : int
     ; max_hp : int
-    ; intent : string  (** e.g., "attack", "defend" *)
-    ; damage_intent : int  (** How much damage the enemy plans to deal *)
+    ; block : int      (** Defensive block, like players *)
+    ; intent : intent  (** What the enemy plans to do *)
     }
   [@@deriving sexp, compare, equal]
 
-  (** Create a new enemy *)
-  val create : kind:string -> max_hp:int -> intent:string -> damage_intent:int -> t
+  (** Create a new enemy with intent variant *)
+  val create : kind:string -> max_hp:int -> intent:intent -> t
 
   (** Check if enemy is still alive *)
   val is_alive : t -> bool
 
-  (** Apply damage to enemy *)
+  (** Apply damage to enemy with block protection *)
   val take_damage : t -> int -> t
 
-  (** Get the action the enemy will perform *)
-  val get_action : t -> [ `Attack of int | `Defend | `Wait ]
+  (** Add block to enemy for defense *)
+  val gain_block : t -> int -> t
+
+  (** Get the action the enemy will perform - returns intent enum, not polymorphic variants *)
+  val get_action : t -> intent
 end
 
 (** Game decision/status *)
