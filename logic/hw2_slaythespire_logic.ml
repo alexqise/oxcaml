@@ -96,10 +96,14 @@ module Player_state = struct
     draw t.hand t.draw_pile t.discard_pile num_cards
   ;;
 
-  (* Start turn: reset energy/block and draw cards *)
+  (* Start turn: discard hand, reset energy/block, and draw cards *)
   let start_turn t = 
-    let t_with_reset = { t with energy = t.max_energy; block = 0 } in
-    draw_cards t_with_reset 5  (* Draw 5 cards at start of turn, like Slay the Spire *)
+    (* Move all cards in hand to discard pile *)
+    let t_with_discarded = { t with discard_pile = t.hand @ t.discard_pile; hand = [] } in
+    (* Reset energy and block *)
+    let t_with_reset = { t_with_discarded with energy = t.max_energy; block = 0 } in
+    (* Draw 5 cards for new turn *)
+    draw_cards t_with_reset 5
 end
 
 module Enemy_state = struct
@@ -322,7 +326,7 @@ module Game_state = struct
     | Some _ -> Ok ()
   ;;
 
-  (* Helper: spend energy and remove card from hand *)
+  (* Helper: spend energy and remove card from hand, adding to discard pile *)
   let spend_energy_and_remove_card (player : Player_state.t) (card : Card.t)
     : (Player_state.t, Move_error.t) Result.t =
     let cost = Card.energy_cost card in
@@ -337,7 +341,10 @@ module Game_state = struct
       | None -> Error Move_error.Invalid_card
       | Some hand -> Ok hand
     in
-    Ok { player_after_energy with Player_state.hand = updated_hand }
+    (* Add played card to discard pile *)
+    Ok { player_after_energy with 
+         Player_state.hand = updated_hand;
+         discard_pile = card :: player_after_energy.discard_pile }
   ;;
 
   (* Helper: apply move to target and update game state *)
