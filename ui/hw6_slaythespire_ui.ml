@@ -253,8 +253,20 @@ let render_battle_area
   let player_area =
     Vdom.Node.div
       ~attrs:[ Vdom.Attr.class_ "player-area" ]
-      [ render_player_card game_state.player1 ~show_image:true
-      ; render_player_card game_state.player2 ~show_image:false
+      [ (* Player 1 - clickable if Defend/Heal card selected *)
+        (match selected_card with
+         | Some card when (match card with Card.Defend | Card.Heal -> true | _ -> false) ->
+           Vdom.Node.div
+             ~attrs:[ Vdom.Attr.on_click (fun _ -> on_target_click `Player1) ]
+             [ render_player_card game_state.player1 ~show_image:true ]
+         | _ -> render_player_card game_state.player1 ~show_image:true)
+      ; (* Player 2 - clickable if Defend/Heal card selected *)
+        (match selected_card with
+         | Some card when (match card with Card.Defend | Card.Heal -> true | _ -> false) ->
+           Vdom.Node.div
+             ~attrs:[ Vdom.Attr.on_click (fun _ -> on_target_click `Player2) ]
+             [ render_player_card game_state.player2 ~show_image:false ]
+         | _ -> render_player_card game_state.player2 ~show_image:false)
       ]
   in
   
@@ -264,13 +276,19 @@ let render_battle_area
       ~attrs:[ Vdom.Attr.class_ "enemy-area" ]
       (List.mapi game_state.enemies ~f:(fun index enemy ->
          let enemy_card = render_enemy_card enemy ~index in
-         (* Wrap in clickable div if card is selected *)
+         (* Wrap in clickable div if card is selected and can target enemies *)
          match selected_card with
          | None -> enemy_card
-         | Some _ -> 
-           Vdom.Node.div
+         | Some card -> 
+           let can_target_enemy = match card with
+             | Card.Strike | Card.Special _ -> true
+             | Card.Defend | Card.Heal -> false
+           in
+           if can_target_enemy
+           then Vdom.Node.div
              ~attrs:[ Vdom.Attr.on_click (fun _ -> on_target_click (`Enemy index)) ]
              [ enemy_card ]
+           else enemy_card
        ))
   in
   
@@ -344,9 +362,9 @@ let app =
       |> Result.ok
       |> Option.value_exn
     in
-    (* Draw initial hand for Player 1 *)
-    let player1_with_hand = Player_state.draw_cards game_state.player1 5 in
-    { game_state with player1 = player1_with_hand }
+    (* Start Player 1's first turn properly *)
+    let player1_with_turn = Player_state.start_turn game_state.player1 in
+    { game_state with player1 = player1_with_turn }
   in
   
   (* Bonsai state: game state + selected card *)
@@ -392,10 +410,8 @@ in
     let final_state = 
       match new_state.decision with
       | In_progress { whose_turn = `Enemy } -> 
-        (* Process enemy turn, then transition to next player's turn *)
-        let after_enemy = Game_state.process_enemy_turn new_state in
-        (* Call end_turn again to properly start the next player's turn *)
-        Game_state.end_turn after_enemy
+        (* Process enemy turn - this already sets turn back to Player1 *)
+        Game_state.process_enemy_turn new_state
       | _ -> new_state
     in
     set_game_state final_state
