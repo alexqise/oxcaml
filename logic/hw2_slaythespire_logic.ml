@@ -17,7 +17,7 @@ module Card = struct
   let energy_cost = function
     | Strike -> 1
     | Defend -> 1
-    | Heal -> 1
+    | Heal -> 2
     | Special _ -> 2
   ;;
 
@@ -353,12 +353,31 @@ module Game_state = struct
     match get_target t move.Move.target with
     | None -> Error Move_error.Invalid_target
     | Some target_entity ->
-      (* Apply card effect to target *)
-      let updated_entity = apply_card_effect move.Move.card target_entity in
-      (* Update game state with new player and target *)
-      let t_with_updated_player = update_current_player t player_with_card_played in
+      (* Check if target is the current player (self-targeting) *)
+      let is_targeting_self = 
+        match t.decision, move.Move.target with
+        | In_progress { whose_turn = `Player1 }, `Player1 -> true
+        | In_progress { whose_turn = `Player2 }, `Player2 -> true
+        | _ -> false
+      in
+      (* Apply card effect to the right target *)
+      let updated_entity = 
+        if is_targeting_self
+        then apply_card_effect move.Move.card (`Player player_with_card_played)
+        else apply_card_effect move.Move.card target_entity
+      in
+      (* Update game state *)
       let t_with_updated_target =
-        update_target_in_game_state t_with_updated_player move.Move.target updated_entity
+        if is_targeting_self
+        then 
+          (* For self-targeting, use the player with both energy/card changes and card effect *)
+          match updated_entity with
+          | `Player player_with_effect -> update_current_player t player_with_effect
+          | _ -> update_current_player t player_with_card_played
+        else 
+          (* For other-targeting, update current player and target separately *)
+          let t_with_updated_player = update_current_player t player_with_card_played in
+          update_target_in_game_state t_with_updated_player move.Move.target updated_entity
       in
       (* Check for game over but keep same turn *)
       let new_decision = check_game_over t_with_updated_target in
@@ -407,28 +426,45 @@ module Game_state = struct
     match t.decision with
     | In_progress { whose_turn = `Enemy } ->
       (* Process each enemy action using intent enum, not polymorphic variants *)
-      let updated_player1, updated_enemies =
-        List.fold t.enemies ~init:(t.player1, []) ~f:(fun (acc_player, acc_enemies) enemy ->
+      let updated_player1, updated_player2, updated_enemies =
+        List.fold t.enemies ~init:(t.player1, t.player2, []) ~f:(fun (acc_p1, acc_p2, acc_enemies) enemy ->
           if Enemy_state.is_alive enemy
           then (
             match Enemy_state.get_action enemy with
             | Enemy_state.Attack damage -> 
-              (* Enemy attacks player *)
-              (Player_state.take_damage acc_player damage, enemy :: acc_enemies)
+              (* Enemy attacks a random alive player *)
+              let target_player = 
+                if Player_state.is_alive acc_p1 && Player_state.is_alive acc_p2
+                then (if Random.bool () then acc_p1 else acc_p2)
+                else if Player_state.is_alive acc_p1
+                then acc_p1
+                else if Player_state.is_alive acc_p2
+                then acc_p2
+                else acc_p1  (* Fallback, but shouldn't happen *)
+              in
+              let updated_target = Player_state.take_damage target_player damage in
+              let new_p1, new_p2 = 
+                if Player_state.equal target_player acc_p1
+                then (updated_target, acc_p2)
+                else (acc_p1, updated_target)
+              in
+              (new_p1, new_p2, enemy :: acc_enemies)
             | Enemy_state.Defend block_amount -> 
               (* Enemy gains block *)
-              (acc_player, Enemy_state.gain_block enemy block_amount :: acc_enemies)
-            | Enemy_state.Wait -> (acc_player, enemy :: acc_enemies))
-          else (acc_player, enemy :: acc_enemies))
+              (acc_p1, acc_p2, Enemy_state.gain_block enemy block_amount :: acc_enemies)
+            | Enemy_state.Wait -> (acc_p1, acc_p2, enemy :: acc_enemies))
+          else (acc_p1, acc_p2, enemy :: acc_enemies))
       in
-      let updated_t = { t with player1 = updated_player1; enemies = List.rev updated_enemies } in
+      let updated_t = { t with player1 = updated_player1; player2 = updated_player2; enemies = List.rev updated_enemies } in
       let new_decision = check_game_over updated_t in
       let final_decision =
         if Decision.is_game_over new_decision
         then new_decision
         else Decision.In_progress { whose_turn = `Player1 }
       in
-      { updated_t with decision = final_decision; turn_count = updated_t.turn_count + 1 }
+      (* Reset Player1's energy when their turn starts again *)
+      let player1_with_turn = Player_state.start_turn updated_t.player1 in
+      { updated_t with player1 = player1_with_turn; decision = final_decision; turn_count = updated_t.turn_count + 1 }
     | _ -> t
   ;;
 
