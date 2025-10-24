@@ -70,18 +70,19 @@ let render_player_stats (player : Player_state.t) =
 ;;
 
 (* Render a single player card *)
-let render_player_card (player : Player_state.t) ~show_image =
+let render_player_card (player : Player_state.t) ~image_src =
   let image_node = 
-    if show_image 
-    then [ Vdom.Node.create 
-             "img" 
-             ~attrs:[ Vdom.Attr.class_ "char-img"
-                    ; Vdom.Attr.create "src" "assets/ironclad.png"
-                    ; Vdom.Attr.create "alt" player.name
-                    ] 
-             [] 
-         ]
-    else []
+    match image_src with
+    | Some src -> 
+      [ Vdom.Node.create 
+          "img" 
+          ~attrs:[ Vdom.Attr.class_ "char-img"
+                 ; Vdom.Attr.create "src" src
+                 ; Vdom.Attr.create "alt" player.name
+                 ] 
+          [] 
+      ]
+    | None -> []
   in
   Vdom.Node.div
     ~attrs:[ Vdom.Attr.class_ "player-card" ]
@@ -258,15 +259,15 @@ let render_battle_area
          | Some card when (match card with Card.Defend | Card.Heal -> true | _ -> false) ->
            Vdom.Node.div
              ~attrs:[ Vdom.Attr.on_click (fun _ -> on_target_click `Player1) ]
-             [ render_player_card game_state.player1 ~show_image:true ]
-         | _ -> render_player_card game_state.player1 ~show_image:true)
+             [ render_player_card game_state.player1 ~image_src:(Some "assets/ironclad.png") ]
+         | _ -> render_player_card game_state.player1 ~image_src:(Some "assets/ironclad.png"))
       ; (* Player 2 - clickable if Defend/Heal card selected *)
         (match selected_card with
          | Some card when (match card with Card.Defend | Card.Heal -> true | _ -> false) ->
            Vdom.Node.div
              ~attrs:[ Vdom.Attr.on_click (fun _ -> on_target_click `Player2) ]
-             [ render_player_card game_state.player2 ~show_image:false ]
-         | _ -> render_player_card game_state.player2 ~show_image:false)
+             [ render_player_card game_state.player2 ~image_src:(Some "assets/player2.png") ]
+         | _ -> render_player_card game_state.player2 ~image_src:(Some "assets/player2.png"))
       ]
   in
   
@@ -362,7 +363,6 @@ let app =
       |> Result.ok
       |> Option.value_exn
     in
-    (* Start Player 1's first turn properly *)
     let player1_with_turn = Player_state.start_turn game_state.player1 in
     { game_state with player1 = player1_with_turn }
   in

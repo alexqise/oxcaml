@@ -2,10 +2,8 @@ open! Core
 
 (* Import the modules we're testing *)
 open Tictactoe_logic_library
-(* open Hw2_tictactoe_logic *)  (* Not used in this file *)
 (* Use module aliases to avoid name conflicts *)
 module STS = Hw2_slaythespire_logic
-(* open Hw1_slaythespire *)  (* Not used in this file *)
 
 (* Re-export STS modules for convenience in tests *)
 module Card = STS.Card
@@ -14,7 +12,6 @@ module Enemy_state = STS.Enemy_state
 module Decision = STS.Decision
 module Game_state = STS.Game_state
 
-(* Create shortcuts for Enemy intent constructors - no polymorphic variants! *)
 let attack damage = Hw2_slaythespire_logic.Enemy_state.Attack damage
 let defend block = Hw2_slaythespire_logic.Enemy_state.Defend block
 let wait = Hw2_slaythespire_logic.Enemy_state.Wait
@@ -167,7 +164,6 @@ let%expect_test "Enemy_state.get_action works" =
   let attacker = Enemy_state.create ~kind:"Orc" ~max_hp:50 ~intent:(attack 8) in
   let defender = Enemy_state.create ~kind:"Guard" ~max_hp:40 ~intent:(defend 5) in
   
-  (* Test attack action - using proper enum, not polymorphic variants *)
   (match Enemy_state.get_action attacker with
    | Hw2_slaythespire_logic.Enemy_state.Attack damage -> 
      print_s [%message "Attacker action" ~damage:(damage : int)];
@@ -431,43 +427,6 @@ let%expect_test "Random card game walk - various outcomes" =
      (floor 1) (decision (In_progress (whose_turn Player1))) (turn_count 162))
     |}]
 ;;
-
-(* === STRESS TESTING WITH MULTIPLE WALKS === *)
-
-(* Disabled - games may not finish within iteration limit *)
-(* let%test "Random walks reach terminal states consistently" =
-  (* Test that random walks always reach some terminal state *)
-  let deck = [Card.Strike; Card.Defend] in 
-  let weak_enemy = Enemy_state.create ~kind:"Goblin" ~max_hp:10 ~intent:"attack" ~damage_intent:3 in
-  let game = match Game_state.create ~floor:1 ~player1_deck:deck ~player2_deck:deck ~enemies:[weak_enemy] with
-    | Ok g -> g
-    | Error _ -> failwith "Failed to create test game"
-  in
-  
-  let battle_ready = { game with 
-    player1 = { game.player1 with 
-      energy = 3; 
-      hand = [Card.Strike; Card.Defend];
-      health = 50
-    };
-    player2 = { game.player2 with 
-      energy = 3; 
-      hand = [Card.Strike; Card.Defend];
-      health = 50
-    }
-  } in
-  
-  (* Test multiple random seeds *)
-  let seeds = [1; 42; 123; 1000; 9999] in
-  
-  List.for_all seeds ~f:(fun seed ->
-    let final_state = random_walk battle_ready ~random_seed:seed in
-    (* Game should always be over *)
-    Decision.is_game_over final_state.decision
-  )
-;; *)
-
-(* === MEASURING GAME CHARACTERISTICS === *)
 
 let analyze_random_game (game : Game_state.t) ~random_seed =
   let final_state = random_walk game ~random_seed in
