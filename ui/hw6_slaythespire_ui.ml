@@ -245,8 +245,21 @@ let render_game_status (decision : Decision.t) =
 (* Render the main battle area *)
 let render_battle_area 
     (game_state : Game_state.t) 
-    ~selected_card 
+    ~selected_card_index 
     ~on_target_click =
+  (* Get the current player and their selected card *)
+  let current_player = 
+    match game_state.decision with
+    | In_progress { whose_turn = `Player1 } -> game_state.player1
+    | In_progress { whose_turn = `Player2 } -> game_state.player2
+    | _ -> game_state.player1  (* fallback *)
+  in
+  let selected_card = 
+    match selected_card_index with
+    | None -> None
+    | Some card_index -> List.nth current_player.hand card_index
+  in
+
   (* Player area *)
   let player_area =
     Vdom.Node.div
@@ -298,7 +311,7 @@ let render_battle_area
 (* Render the player's hand *)
 let render_hand 
     (game_state : Game_state.t) 
-    ~selected_card 
+    ~selected_card_index 
     ~on_card_select
     ~on_end_turn =
   let current_player_opt = 
@@ -329,18 +342,18 @@ let render_hand
           ]
       ; Vdom.Node.div
           ~attrs:[ Vdom.Attr.class_ "hand" ]
-          (List.map player.hand ~f:(fun card ->
+          (List.mapi player.hand ~f:(fun index card ->
              let cost = Card.energy_cost card in
              let can_afford = player.energy >= cost in
              let is_selected = 
-               match selected_card with
-               | Some sel_card -> Card.equal sel_card card
+               match selected_card_index with
+               | Some sel_index -> index = sel_index
                | None -> false
              in
              render_card 
                card 
                ~selected:is_selected 
-               ~on_select:(fun () -> on_card_select card) 
+               ~on_select:(fun () -> on_card_select index) 
                ~can_afford
            ))
       ]
@@ -379,35 +392,46 @@ let app =
     Bonsai.state ~default_model:initial_state (module Game_state)
   in
   
-  let%sub selected_card, set_selected_card =
+  let%sub selected_card_index, set_selected_card_index =
     Bonsai.state ~default_model:None (module struct
-      type t = Card.t option [@@deriving sexp, equal]
+      type t = int option [@@deriving sexp, equal]
     end)
   in
   
   (* Build the UI *)
   let%arr game_state = game_state
   and set_game_state = set_game_state
-  and selected_card = selected_card
-  and set_selected_card = set_selected_card in
+  and selected_card_index = selected_card_index
+  and set_selected_card_index = set_selected_card_index in
   
   (* Card selection handler *)
-  let on_card_select card =
-    set_selected_card (Some card)
+  let on_card_select card_index =
+    set_selected_card_index (Some card_index)
   in
   
   (* Target selection handler *)
 let on_target_click target =
-  match selected_card with
+  match selected_card_index with
   | None -> Ui_effect.Ignore  (* No card selected *)
-  | Some card ->
-    (* Make the move *)
-    let move = Game_state.Move.{ card; target } in
-    (match Game_state.make_move game_state move with
-     | Ok new_state -> 
-       Ui_effect.Many [ set_game_state new_state; set_selected_card None ]
-     | Error _ -> 
-       Ui_effect.Ignore)
+  | Some card_index ->
+    (* Get the current player and their hand *)
+    let current_player = 
+      match game_state.decision with
+      | In_progress { whose_turn = `Player1 } -> game_state.player1
+      | In_progress { whose_turn = `Player2 } -> game_state.player2
+      | _ -> game_state.player1  (* fallback *)
+    in
+    (* Get the card at the selected index *)
+    (match List.nth current_player.hand card_index with
+     | None -> Ui_effect.Ignore
+     | Some card ->
+       (* Make the move *)
+       let move = Game_state.Move.{ card; target } in
+       (match Game_state.make_move game_state move with
+        | Ok new_state -> 
+          Ui_effect.Many [ set_game_state new_state; set_selected_card_index None ]
+        | Error _ -> 
+          Ui_effect.Ignore))
 in
   
   (* End turn button handler *)
@@ -429,8 +453,8 @@ in
     ~attrs:[ Vdom.Attr.class_ "game-container" ]
     [ render_header ()
     ; render_game_status game_state.decision
-    ; render_battle_area game_state ~selected_card ~on_target_click
-    ; render_hand game_state ~selected_card ~on_card_select ~on_end_turn
+    ; render_battle_area game_state ~selected_card_index ~on_target_click
+    ; render_hand game_state ~selected_card_index ~on_card_select ~on_end_turn
     ]
 ;;
 
