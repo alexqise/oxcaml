@@ -215,15 +215,12 @@ let render_card
 ;;
 
 (* Render the header with game info *)
-let render_header (game_state : Game_state.t) =
+let render_header () =
   Vdom.Node.div
     ~attrs:[ Vdom.Attr.class_ "game-header" ]
     [ Vdom.Node.create "h1"
         ~attrs:[ Vdom.Attr.class_ "game-title" ]
         [ Vdom.Node.text "Slay the Spire" ]
-    ; Vdom.Node.div
-        ~attrs:[ Vdom.Attr.class_ "floor-info" ]
-        [ Vdom.Node.text (sprintf "Floor %d - Turn %d" game_state.floor game_state.turn_count) ]
     ]
 ;;
 
@@ -302,7 +299,8 @@ let render_battle_area
 let render_hand 
     (game_state : Game_state.t) 
     ~selected_card 
-    ~on_card_select =
+    ~on_card_select
+    ~on_end_turn =
   let current_player_opt = 
     match game_state.decision with
     | In_progress { whose_turn = `Player1 } -> Some game_state.player1
@@ -318,8 +316,17 @@ let render_hand
     Vdom.Node.div
       ~attrs:[ Vdom.Attr.class_ "cards-area" ]
       [ Vdom.Node.div
-          ~attrs:[ Vdom.Attr.class_ "cards-title" ]
-          [ Vdom.Node.text hand_title ]
+          ~attrs:[ Vdom.Attr.class_ "hand-container" ]
+          [ Vdom.Node.div
+              ~attrs:[ Vdom.Attr.class_ "cards-title" ]
+              [ Vdom.Node.text hand_title ]
+          ; Vdom.Node.create "button"
+              ~attrs:
+                [ Vdom.Attr.class_ "end-turn-btn"
+                ; Vdom.Attr.on_click (fun _ -> on_end_turn ())
+                ]
+              [ Vdom.Node.text "End Turn" ]
+          ]
       ; Vdom.Node.div
           ~attrs:[ Vdom.Attr.class_ "hand" ]
           (List.map player.hand ~f:(fun card ->
@@ -420,20 +427,10 @@ in
   (* Build complete UI tree *)
   Vdom.Node.div
     ~attrs:[ Vdom.Attr.class_ "game-container" ]
-    [ render_header game_state
+    [ render_header ()
     ; render_game_status game_state.decision
     ; render_battle_area game_state ~selected_card ~on_target_click
-    ; render_hand game_state ~selected_card ~on_card_select
-    ; (* End turn button *)
-      Vdom.Node.create "button"
-        ~attrs:
-          [ Vdom.Attr.on_click (fun _ -> on_end_turn ())
-          ; Vdom.Attr.style 
-              (Css_gen.create 
-                 ~field:"margin" 
-                 ~value:"20px auto")
-          ]
-        [ Vdom.Node.text "End Turn" ]
+    ; render_hand game_state ~selected_card ~on_card_select ~on_end_turn
     ]
 ;;
 
