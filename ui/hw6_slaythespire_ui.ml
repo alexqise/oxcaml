@@ -71,6 +71,10 @@ let render_player_stats (player : Player_state.t) =
 
 (* Render a single player card *)
 let render_player_card (player : Player_state.t) ~image_src =
+  let is_dead = not (Player_state.is_alive player) in
+  let card_classes = 
+    if is_dead then ["player-card"; "dead-entity"] else ["player-card"]
+  in
   let image_node = 
     match image_src with
     | Some src -> 
@@ -85,7 +89,7 @@ let render_player_card (player : Player_state.t) ~image_src =
     | None -> []
   in
   Vdom.Node.div
-    ~attrs:[ Vdom.Attr.class_ "player-card" ]
+    ~attrs:[ Vdom.Attr.class_ (String.concat ~sep:" " card_classes) ]
     ([ Vdom.Node.div
          ~attrs:[ Vdom.Attr.class_ "player-name" ]
          [ Vdom.Node.text player.name ]
@@ -133,6 +137,10 @@ let render_enemy_stats (enemy : Enemy_state.t) =
 
 (* Render a single enemy card *)
 let render_enemy_card (enemy : Enemy_state.t) ~index:_ =
+  let is_dead = not (Enemy_state.is_alive enemy) in
+  let card_classes = 
+    if is_dead then ["enemy-card"; "dead-entity"] else ["enemy-card"]
+  in
   (* Choose image based on enemy kind *)
   let image_src = 
     match String.lowercase enemy.kind with
@@ -141,7 +149,7 @@ let render_enemy_card (enemy : Enemy_state.t) ~index:_ =
     | _ -> "assets/orc.png"  (* Default fallback *)
   in
   Vdom.Node.div
-    ~attrs:[ Vdom.Attr.class_ "enemy-card" ]
+    ~attrs:[ Vdom.Attr.class_ (String.concat ~sep:" " card_classes) ]
     [ Vdom.Node.div
         ~attrs:[ Vdom.Attr.class_ "enemy-name" ]
         [ Vdom.Node.text enemy.kind ]
@@ -260,46 +268,41 @@ let render_battle_area
     | Some card_index -> List.nth current_player.hand card_index
   in
 
-  (* Player area *)
+  (* Player area - show all players, but only alive ones are clickable *)
   let player_area =
     Vdom.Node.div
       ~attrs:[ Vdom.Attr.class_ "player-area" ]
-      [ (* Player 1 - clickable if Defend/Heal card selected *)
-        (match selected_card with
-         | Some card when (match card with Card.Defend | Card.Heal -> true | _ -> false) ->
-           Vdom.Node.div
-             ~attrs:[ Vdom.Attr.on_click (fun _ -> on_target_click `Player1) ]
-             [ render_player_card game_state.player1 ~image_src:(Some "assets/ironclad.png") ]
-         | _ -> render_player_card game_state.player1 ~image_src:(Some "assets/ironclad.png"))
-      ; (* Player 2 - clickable if Defend/Heal card selected *)
-        (match selected_card with
-         | Some card when (match card with Card.Defend | Card.Heal -> true | _ -> false) ->
-           Vdom.Node.div
-             ~attrs:[ Vdom.Attr.on_click (fun _ -> on_target_click `Player2) ]
-             [ render_player_card game_state.player2 ~image_src:(Some "assets/player2.png") ]
-         | _ -> render_player_card game_state.player2 ~image_src:(Some "assets/player2.png"))
-      ]
+      (List.map 
+         [ (game_state.player1, "assets/ironclad.png", `Player1)
+         ; (game_state.player2, "assets/player2.png", `Player2)
+         ] 
+         ~f:(fun (player, image_src, target) ->
+           let player_card = render_player_card player ~image_src:(Some image_src) in
+           if Player_state.is_alive player && (match selected_card with
+             | Some card when (match card with Card.Defend | Card.Heal -> true | _ -> false) -> true
+             | _ -> false)
+           then Vdom.Node.div
+             ~attrs:[ Vdom.Attr.on_click (fun _ -> on_target_click target) ]
+             [ player_card ]
+           else player_card  (* Dead players or no valid card selected - no click handler *)
+         ))
   in
   
-  (* Enemy area - with click handlers when card is selected *)
+  (* Enemy area - show all enemies, but only alive ones are clickable *)
   let enemy_area =
     Vdom.Node.div
       ~attrs:[ Vdom.Attr.class_ "enemy-area" ]
       (List.mapi game_state.enemies ~f:(fun index enemy ->
          let enemy_card = render_enemy_card enemy ~index in
-         (* Wrap in clickable div if card is selected and can target enemies *)
-         match selected_card with
-         | None -> enemy_card
-         | Some card -> 
-           let can_target_enemy = match card with
-             | Card.Strike | Card.Special _ -> true
-             | Card.Defend | Card.Heal -> false
-           in
-           if can_target_enemy
-           then Vdom.Node.div
-             ~attrs:[ Vdom.Attr.on_click (fun _ -> on_target_click (`Enemy index)) ]
-             [ enemy_card ]
-           else enemy_card
+         if Enemy_state.is_alive enemy && (match selected_card with
+           | Some card when (match card with
+               | Card.Strike | Card.Special _ -> true
+               | Card.Defend | Card.Heal -> false) -> true
+           | _ -> false)
+         then Vdom.Node.div
+           ~attrs:[ Vdom.Attr.on_click (fun _ -> on_target_click (`Enemy index)) ]
+           [ enemy_card ]
+         else enemy_card  (* Dead enemies or no valid card selected - no click handler *)
        ))
   in
   
