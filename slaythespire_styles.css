@@ -18,7 +18,6 @@ body {
     display: flex;
     flex-direction: column;
     height: 100vh;
-    padding: 20px;
 }
 
 /* Header */
@@ -48,8 +47,6 @@ body {
     justify-content: space-between;
     align-items: center;
     flex: 1;
-    margin: 20px 0;
-    padding: 20px;
     border-radius: 15px;
     border: none;
 }
@@ -170,8 +167,6 @@ body {
 /* Cards area */
 .cards-area {
     border-radius: 15px;
-    padding: 20px;
-    margin-top: 20px;
     border: none;
 }
 
