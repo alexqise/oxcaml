@@ -3,6 +3,7 @@ open Tictactoe_logic_library
 open Hw2_slaythespire_logic
 open Virtual_dom
 open! Bonsai.Let_syntax
+open Firebase_effects
 
 (* define the helper methods here *)
 
@@ -232,6 +233,105 @@ let render_header () =
     ]
 ;;
 
+(* Lobby screen state *)
+type lobby_screen =
+  | Main_menu
+  | Creating_lobby
+  | Joining_lobby
+  | In_lobby of { game_id : string; players : string list; is_host : bool }
+  | In_game of { game_id : string; player_role : [`Player1 | `Player2] }
+[@@deriving sexp, equal]
+
+(* Render lobby UI *)
+let render_lobby_ui 
+    ~lobby_screen 
+    ~game_id_input 
+    ~set_game_id_input 
+    ~on_create_lobby 
+    ~on_join_lobby =
+  match lobby_screen with
+  | Main_menu ->
+    Vdom.Node.div
+      ~attrs:[ Vdom.Attr.class_ "lobby-container" ]
+      [ Vdom.Node.div
+          ~attrs:[ Vdom.Attr.class_ "lobby-menu" ]
+          [ Vdom.Node.create "h2"
+              ~attrs:[ Vdom.Attr.class_ "lobby-title" ]
+              [ Vdom.Node.text "Multiplayer Lobby" ]
+          ; Vdom.Node.create "button"
+              ~attrs:
+                [ Vdom.Attr.class_ "lobby-btn"
+                ; Vdom.Attr.on_click (fun _ -> on_create_lobby ())
+                ]
+              [ Vdom.Node.text "Create Game" ]
+          ; Vdom.Node.div
+              ~attrs:[ Vdom.Attr.class_ "join-section" ]
+              [ Vdom.Node.create "input"
+                  ~attrs:
+                    [ Vdom.Attr.type_ "text"
+                    ; Vdom.Attr.placeholder "Enter Game ID"
+                    ; Vdom.Attr.value game_id_input
+                    ; Vdom.Attr.on_input (fun _ text -> set_game_id_input text)
+                    ]
+                  []
+              ; Vdom.Node.create "button"
+                  ~attrs:
+                    [ Vdom.Attr.class_ "lobby-btn"
+                    ; Vdom.Attr.on_click (fun _ -> 
+                        if String.is_empty game_id_input 
+                        then Ui_effect.Ignore
+                        else on_join_lobby game_id_input)
+                    ]
+                  [ Vdom.Node.text "Join Game" ]
+              ]
+          ]
+      ]
+  | Creating_lobby ->
+    Vdom.Node.div
+      ~attrs:[ Vdom.Attr.class_ "lobby-container" ]
+      [ Vdom.Node.div
+          ~attrs:[ Vdom.Attr.class_ "lobby-status" ]
+          [ Vdom.Node.text "Creating lobby..." ]
+      ]
+  | Joining_lobby ->
+    Vdom.Node.div
+      ~attrs:[ Vdom.Attr.class_ "lobby-container" ]
+      [ Vdom.Node.div
+          ~attrs:[ Vdom.Attr.class_ "lobby-status" ]
+          [ Vdom.Node.text "Joining game..." ]
+      ]
+  | In_lobby { game_id; players; is_host } ->
+    Vdom.Node.div
+      ~attrs:[ Vdom.Attr.class_ "lobby-container" ]
+      [ Vdom.Node.div
+          ~attrs:[ Vdom.Attr.class_ "lobby-info" ]
+          [ Vdom.Node.create "h2"
+              ~attrs:[ Vdom.Attr.class_ "lobby-title" ]
+              [ Vdom.Node.text (sprintf "Game ID: %s" game_id) ]
+          ; Vdom.Node.div
+              ~attrs:[ Vdom.Attr.class_ "players-list" ]
+              (List.map players ~f:(fun player ->
+                 Vdom.Node.div
+                   ~attrs:[ Vdom.Attr.class_ "player-item" ]
+                   [ Vdom.Node.text player ]))
+          ; (if is_host then
+              Vdom.Node.div
+                ~attrs:[ Vdom.Attr.class_ "lobby-status" ]
+                [ Vdom.Node.text "Waiting for Player 2..." ]
+            else
+              Vdom.Node.div
+                ~attrs:[ Vdom.Attr.class_ "lobby-status" ]
+                [ Vdom.Node.text "Waiting for game to start..." ])
+          ]
+      ]
+  | In_game { game_id; player_role } ->
+    Vdom.Node.div
+      ~attrs:[ Vdom.Attr.class_ "game-info-bar" ]
+      [ Vdom.Node.text (sprintf "Game: %s | You are: %s" 
+          game_id 
+          (match player_role with `Player1 -> "Player 1" | `Player2 -> "Player 2")) ]
+;;
+
 (* Render game status message *)
 let render_game_status (decision : Decision.t) =
   let status_class, message = match decision with
@@ -390,6 +490,29 @@ let app =
     { game_state with player1 = player1_with_turn }
   in
   
+  (* Lobby state *)
+  let%sub lobby_screen, set_lobby_screen =
+    Bonsai.state ~default_model:Main_menu (module struct
+      type t = lobby_screen [@@deriving sexp, equal]
+    end)
+  in
+  
+  let%sub game_id_input, set_game_id_input =
+    Bonsai.state ~default_model:"" (module String)
+  in
+  
+  let%sub current_game_id, set_current_game_id =
+    Bonsai.state ~default_model:None (module struct
+      type t = string option [@@deriving sexp, equal]
+    end)
+  in
+  
+  let%sub player_role, set_player_role =
+    Bonsai.state ~default_model:None (module struct
+      type t = [`Player1 | `Player2] option [@@deriving sexp, equal]
+    end)
+  in
+  
   (* Bonsai state: game state + selected card *)
   let%sub game_state, set_game_state =
     Bonsai.state ~default_model:initial_state (module Game_state)
@@ -401,64 +524,186 @@ let app =
     end)
   in
   
+  (* Create lobby effect handler *)
+  let%sub create_lobby_effect =
+    let%arr set_lobby_screen = set_lobby_screen
+    and set_current_game_id = set_current_game_id
+    and set_player_role = set_player_role in
+    let open Ui_effect.Let_syntax in
+    fun () ->
+      (* Step 1: Show loading state immediately *)
+      let%bind () = set_lobby_screen Creating_lobby in
+      (* Step 2: Wait for async Firebase call *)
+      let%bind result = Firebase_effects.create_lobby_effect () in
+      (* Step 3: Update UI based on result *)
+      match result with
+      | Ok (game_id, players) ->
+        Ui_effect.Many [
+          set_current_game_id (Some game_id);
+          set_player_role (Some `Player1);
+          set_lobby_screen (In_lobby { game_id; players; is_host = true })
+        ]
+      | Error _err ->
+        Ui_effect.Many [
+          set_lobby_screen Main_menu;
+          (* In a real app, you'd show error message *)
+        ]
+  in
+  
+  (* Join lobby effect handler *)
+  let%sub join_lobby_effect =
+    let%arr set_lobby_screen = set_lobby_screen
+    and set_current_game_id = set_current_game_id
+    and set_player_role = set_player_role in
+    let open Ui_effect.Let_syntax in
+    fun game_id ->
+      (* Step 1: Show loading state immediately *)
+      let%bind () = set_lobby_screen Joining_lobby in
+      (* Step 2: Wait for async Firebase call *)
+      let%bind result = Firebase_effects.join_lobby_effect ~game_id () in
+      (* Step 3: Update UI based on result *)
+      match result with
+      | Ok (game_id, players) ->
+        Ui_effect.Many [
+          set_current_game_id (Some game_id);
+          set_player_role (Some `Player2);
+          set_lobby_screen (In_lobby { game_id; players; is_host = false })
+        ]
+      | Error _err ->
+        Ui_effect.Many [
+          set_lobby_screen Main_menu;
+          (* In a real app, you'd show error message *)
+        ]
+  in
+  
+  (* Polling callback for game state updates *)
+  let%sub poll_callback =
+    let%arr game_state = game_state
+    and set_game_state = set_game_state
+    and current_game_id = current_game_id in
+    let open Ui_effect.Let_syntax in
+    match current_game_id with
+    | None -> Ui_effect.Ignore
+    | Some game_id ->
+      (* Fetch latest state from Firebase *)
+      let%bind result = Firebase_effects.fetch_game_state_effect ~game_id () in
+      match result with
+      | Some new_state ->
+        (* Update UI if state changed *)
+        if Game_state.equal new_state game_state then
+          Ui_effect.Ignore
+        else
+          set_game_state new_state
+      | None -> Ui_effect.Ignore
+  in
+  
+  (* Schedule polling every 2 seconds *)
+  let%sub () = 
+    Bonsai.Clock.every 
+      ~when_to_start_next_effect:`Every_multiple_of_period_blocking
+      (Time_ns.Span.of_sec 2.0)
+      poll_callback
+  in
+  
   (* Build the UI *)
   let%arr game_state = game_state
   and set_game_state = set_game_state
   and selected_card_index = selected_card_index
-  and set_selected_card_index = set_selected_card_index in
+  and set_selected_card_index = set_selected_card_index
+  and lobby_screen = lobby_screen
+  and game_id_input = game_id_input
+  and set_game_id_input = set_game_id_input
+  and create_lobby_effect = create_lobby_effect
+  and join_lobby_effect = join_lobby_effect
+  and current_game_id = current_game_id
+  and player_role = player_role in
   
   (* Card selection handler *)
   let on_card_select card_index =
     set_selected_card_index (Some card_index)
   in
   
-  (* Target selection handler *)
-let on_target_click target =
-  match selected_card_index with
-  | None -> Ui_effect.Ignore  (* No card selected *)
-  | Some card_index ->
-    (* Get the current player and their hand *)
-    let current_player = 
-      match game_state.decision with
-      | In_progress { whose_turn = `Player1 } -> game_state.player1
-      | In_progress { whose_turn = `Player2 } -> game_state.player2
-      | _ -> game_state.player1  (* fallback *)
-    in
-    (* Get the card at the selected index *)
-    (match List.nth current_player.hand card_index with
-     | None -> Ui_effect.Ignore
-     | Some card ->
-       (* Make the move *)
-       let move = Game_state.Move.{ card; target } in
-       (match Game_state.make_move game_state move with
-        | Ok new_state -> 
-          Ui_effect.Many [ set_game_state new_state; set_selected_card_index None ]
-        | Error _ -> 
-          Ui_effect.Ignore))
-in
+  (* Target selection handler - also saves to Firebase *)
+  let on_target_click target =
+    match selected_card_index with
+    | None -> Ui_effect.Ignore
+    | Some card_index ->
+      (* Get the current player and their hand *)
+      let current_player = 
+        match game_state.decision with
+        | In_progress { whose_turn = `Player1 } -> game_state.player1
+        | In_progress { whose_turn = `Player2 } -> game_state.player2
+        | _ -> game_state.player1
+      in
+      (* Get the card at the selected index *)
+      (match List.nth current_player.hand card_index with
+       | None -> Ui_effect.Ignore
+       | Some card ->
+         (* Make the move *)
+         let move = Game_state.Move.{ card; target } in
+         (match Game_state.make_move game_state move with
+          | Ok new_state -> 
+            (* Save to Firebase if in multiplayer *)
+            let save_effect = match current_game_id with
+              | Some game_id -> 
+                Ui_effect.map (Firebase_effects.save_game_state_effect ~game_id ~game_state:new_state ()) 
+                  ~f:(fun _ -> ())
+              | None -> Ui_effect.Ignore
+            in
+            Ui_effect.Many [
+              set_game_state new_state;
+              set_selected_card_index None;
+              save_effect
+            ]
+          | Error _ -> 
+            Ui_effect.Ignore))
+  in
   
-  (* End turn button handler *)
+  (* End turn button handler - also saves to Firebase *)
   let on_end_turn () =
     let new_state = Game_state.end_turn game_state in
     (* If it's enemy turn, process enemy actions *)
     let final_state = 
       match new_state.decision with
       | In_progress { whose_turn = `Enemy } -> 
-        (* Process enemy turn - this already sets turn back to Player1 *)
         Game_state.process_enemy_turn new_state
       | _ -> new_state
     in
-    set_game_state final_state
+    (* Save to Firebase if in multiplayer *)
+    let save_effect = match current_game_id with
+      | Some game_id -> 
+        Ui_effect.map (Firebase_effects.save_game_state_effect ~game_id ~game_state:final_state ()) 
+          ~f:(fun _ -> ())
+      | None -> Ui_effect.Ignore
+    in
+    Ui_effect.Many [ set_game_state final_state; save_effect ]
   in
   
-  (* Build complete UI tree *)
-  Vdom.Node.div
-    ~attrs:[ Vdom.Attr.class_ "game-container" ]
-    [ render_header ()
-    ; render_game_status game_state.decision
-    ; render_battle_area game_state ~selected_card_index ~on_target_click
-    ; render_hand game_state ~selected_card_index ~on_card_select ~on_end_turn
-    ]
+  (* Render based on lobby screen state *)
+  match lobby_screen with
+  | Main_menu | Creating_lobby | Joining_lobby | In_lobby _ ->
+    render_lobby_ui
+      ~lobby_screen
+      ~game_id_input
+      ~set_game_id_input
+      ~on_create_lobby:create_lobby_effect
+      ~on_join_lobby:join_lobby_effect
+  | In_game { game_id = _; player_role = _ } ->
+    Vdom.Node.div
+      ~attrs:[ Vdom.Attr.class_ "game-container" ]
+      [ render_header ()
+      ; (match current_game_id with
+         | Some id -> render_lobby_ui
+             ~lobby_screen:(In_game { game_id = id; player_role = Option.value_exn player_role })
+             ~game_id_input
+             ~set_game_id_input
+             ~on_create_lobby:create_lobby_effect
+             ~on_join_lobby:join_lobby_effect
+         | None -> Vdom.Node.div ~attrs:[] [])
+      ; render_game_status game_state.decision
+      ; render_battle_area game_state ~selected_card_index ~on_target_click
+      ; render_hand game_state ~selected_card_index ~on_card_select ~on_end_turn
+      ]
 ;;
 
 (* Start the Bonsai app *)

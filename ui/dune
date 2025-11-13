@@ -1,6 +1,6 @@
 (executables
  (modes js)
  (names tictactoe_ui hw6_slaythespire_ui)
- (libraries bonsai.web core virtual_dom tictactoe_logic_library)
+ (libraries bonsai.web core virtual_dom tictactoe_logic_library js_of_ocaml)
  (preprocess
   (pps ppx_jane bonsai.ppx_bonsai)))
