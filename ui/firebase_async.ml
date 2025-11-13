@@ -112,6 +112,21 @@ module Firebase_async = struct
       Deferred.return None
     | Error _ -> Deferred.return None
   
+  (* Fetch lobby status from Firebase to check if player2 has joined *)
+  let fetch_lobby_status_async ~game_id () : (bool * bool, string) Result.t Deferred.t =
+    let open Deferred.Let_syntax in
+    let%bind result = Firebase_http.get_from_firestore 
+      ~collection:"games" 
+      ~document_id:game_id
+    in
+    match result with
+    | Ok json_str ->
+      (* Parse JSON to check player2_joined and status *)
+      let player2_joined = Json_parser.check_player2_joined json_str in
+      let status_in_progress = Json_parser.check_status_in_progress json_str in
+      Deferred.return (Ok (player2_joined, status_in_progress))
+    | Error err -> Deferred.return (Error err)
+  
   (* Save game state to Firebase *)
   let save_game_state_async ~game_id ~game_state () : (unit, string) Result.t Deferred.t =
     let open Deferred.Let_syntax in

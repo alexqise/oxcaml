@@ -576,6 +576,38 @@ let app =
         ]
   in
   
+  (* Polling callback for lobby status to detect when player2 joins *)
+  let%sub lobby_poll_callback =
+    let%arr lobby_screen = lobby_screen
+    and set_lobby_screen = set_lobby_screen
+    and current_game_id = current_game_id
+    and player_role = player_role in
+    let open Ui_effect.Let_syntax in
+    match current_game_id, lobby_screen with
+    | Some game_id, In_lobby { game_id = lobby_id; is_host = _; _ } when String.equal game_id lobby_id ->
+      (* Check if player 2 has joined *)
+      let%bind result = Firebase_effects.fetch_lobby_status_effect ~game_id () in
+      (match result with
+       | Ok (player2_joined, _status_in_progress) ->
+         if player2_joined then (
+           (* Both players are ready - transition to game *)
+           Ui_effect.Many [
+             set_lobby_screen (In_game { game_id; player_role = Option.value_exn player_role })
+           ]
+         ) else
+           Ui_effect.Ignore
+       | Error _ -> Ui_effect.Ignore)
+    | _ -> Ui_effect.Ignore
+  in
+  
+  (* Schedule lobby polling every 1 second (more frequent than game state polling) *)
+  let%sub () = 
+    Bonsai.Clock.every 
+      ~when_to_start_next_effect:`Every_multiple_of_period_blocking
+      (Time_ns.Span.of_sec 1.0)
+      lobby_poll_callback
+  in
+  
   (* Polling callback for game state updates *)
   let%sub poll_callback =
     let%arr game_state = game_state

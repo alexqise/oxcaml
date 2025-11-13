@@ -20,5 +20,9 @@ module Firebase_effects = struct
   (* Save game state effect *)
   let save_game_state_effect ~game_id ~game_state () : (unit, string) Result.t Ui_effect.t =
     Bonsai_web.Effect.of_deferred_fun (Firebase_async.save_game_state_async ~game_id ~game_state) ()
+  
+  (* Fetch lobby status effect *)
+  let fetch_lobby_status_effect ~game_id () : (bool * bool, string) Result.t Ui_effect.t =
+    Bonsai_web.Effect.of_deferred_fun (Firebase_async.fetch_lobby_status_async ~game_id) ()
 end
 
