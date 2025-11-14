@@ -126,37 +126,6 @@ module Firebase_auth = struct
       Js.Unsafe.get user "email" |> Js.to_string
     with _ -> ""
   
-  (* Get ID token from current user *)
-  let get_id_token () : (string, string) Result.t Deferred.t =
-    let ivar = Ivar.create () in
-    try
-      match get_current_user () with
-      | None -> 
-        Ivar.fill ivar (Error "No user signed in");
-        Ivar.read ivar
-      | Some user ->
-        let promise = Js.Unsafe.meth_call user "getIdToken" [||] in
-        let on_success token = 
-          let token_str = Js.to_string token in
-          Ivar.fill ivar (Ok token_str)
-        in
-        let on_error error =
-          let error_msg = 
-            try
-              Js.Unsafe.get error "message" |> Js.to_string
-            with _ -> "Failed to get ID token"
-          in
-          Ivar.fill ivar (Error error_msg)
-        in
-        ignore (Js.Unsafe.meth_call promise "then"
-          [| Js.Unsafe.inject (Js.wrap_callback on_success) |]);
-        ignore (Js.Unsafe.meth_call promise "catch"
-          [| Js.Unsafe.inject (Js.wrap_callback on_error) |]);
-        Ivar.read ivar
-    with exn ->
-      Ivar.fill ivar (Error (sprintf "Auth error: %s" (Exn.to_string exn)));
-      Ivar.read ivar
-  
   (* Listen to auth state changes *)
   let on_auth_state_changed callback =
     try
