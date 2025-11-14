@@ -110,41 +110,9 @@ module Firebase_async = struct
     in
     match result with
     | Ok json_str ->
-      (* Check if game_state field exists in the response *)
-      let has_game_state = String.is_substring json_str ~substring:"\"game_state\"" in
-      (* Parse JSON and convert to Game_state.t *)
       let parsed_state = Serializer.parse_firestore_response json_str in
-      (* Log for debugging *)
-      (match parsed_state with
-       | Some _ -> 
-         let _ = 
-           let console = Js.Unsafe.get Js.Unsafe.global "console" in
-           Js.Unsafe.meth_call console "log" [| Js.Unsafe.inject (Js.string "Successfully parsed game state from Firebase") |]
-         in
-         ()
-       | None ->
-         let _ = 
-           let console = Js.Unsafe.get Js.Unsafe.global "console" in
-           let json_preview = if String.length json_str > 200 then 
-             String.slice json_str 0 200 ^ "..."
-           else json_str in
-           let error_msg = if has_game_state then
-             sprintf "Failed to parse game state (game_state field exists). JSON length: %d, preview: %s" 
-               (String.length json_str) json_preview
-           else
-             sprintf "Game state field not found in Firebase response. JSON length: %d, preview: %s" 
-               (String.length json_str) json_preview
-           in
-           Js.Unsafe.meth_call console "warn" [| Js.Unsafe.inject (Js.string error_msg) |]
-         in
-         ());
       Deferred.return parsed_state
-    | Error err -> 
-      (* Log the error *)
-      let _ = 
-        let console = Js.Unsafe.get Js.Unsafe.global "console" in
-        Js.Unsafe.meth_call console "error" [| Js.Unsafe.inject (Js.string (sprintf "Firebase fetch error: %s" err)) |]
-      in
+    | Error _ -> 
       Deferred.return None
   
   (* Fetch lobby status from Firebase to check if player2 has joined *)
@@ -177,16 +145,6 @@ module Firebase_async = struct
     in
     let body_json = sprintf {|{"fields":{"game_state":{"mapValue":{"fields":{%s}}},"updated_at":{"timestampValue":"%s"}}}|} game_state_fields timestamp in
     
-    (* Log the save attempt *)
-    let console = Js.Unsafe.get Js.Unsafe.global "console" in
-    let _ = 
-      let preview = if String.length body_json > 500 then 
-        String.slice body_json 0 500 ^ "..."
-      else body_json in
-      Js.Unsafe.meth_call console "log" 
-        [| Js.Unsafe.inject (Js.string (sprintf "Player 1: Saving game state to Firebase (game_id: %s, JSON length: %d): %s" game_id (String.length body_json) preview)) |]
-    in
-    
     let%bind result = Firebase_http.patch_firestore 
       ~collection:"games" 
       ~document_id:game_id 
@@ -195,17 +153,7 @@ module Firebase_async = struct
       ()
     in
     match result with
-    | Ok _ -> 
-      (* Log success *)
-      let _ = Js.Unsafe.meth_call console "log" 
-        [| Js.Unsafe.inject (Js.string (sprintf "Player 1: Successfully saved game state to Firebase (game_id: %s)" game_id)) |]
-      in
-      Deferred.return (Ok ())
-    | Error err -> 
-      (* Log the error for debugging *)
-      let _ = Js.Unsafe.meth_call console "error" 
-        [| Js.Unsafe.inject (Js.string (sprintf "Player 1: Firebase save error (game_id: %s): %s" game_id err)) |]
-      in
-      Deferred.return (Error err)
+    | Ok _ -> Deferred.return (Ok ())
+    | Error err -> Deferred.return (Error err)
 end
 
