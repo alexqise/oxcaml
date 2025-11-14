@@ -242,6 +242,15 @@ type lobby_screen =
   | In_game of { game_id : string; player_role : [`Player1 | `Player2] }
 [@@deriving sexp, equal]
 
+(* App screen state - includes auth, home, lobby, and game states *)
+type app_screen =
+  | Auth_screen of { email : string; password : string; is_signup : bool; error : string option }
+  | Home_screen of { user_id : string; user_email : string; wins : int; losses : int }
+  | Lobby_screen of lobby_screen
+  | In_game of { game_id : string; player_role : [`Player1 | `Player2] }
+  | Game_over of { won : bool; user_id : string; user_email : string }
+[@@deriving sexp, equal]
+
 (* Render lobby UI *)
 let render_lobby_ui 
     ~lobby_screen 
@@ -257,7 +266,7 @@ let render_lobby_ui
           ~attrs:[ Vdom.Attr.class_ "lobby-menu" ]
           [ Vdom.Node.create "h2"
               ~attrs:[ Vdom.Attr.class_ "lobby-title" ]
-              [ Vdom.Node.text "Multiplayer Lobby" ]
+              [ Vdom.Node.text "Multiplayer Lobbdy" ]
           ; Vdom.Node.create "button"
               ~attrs:
                 [ Vdom.Attr.class_ "lobby-btn"
@@ -330,6 +339,146 @@ let render_lobby_ui
       [ Vdom.Node.text (sprintf "Game: %s | You are: %s" 
           game_id 
           (match player_role with `Player1 -> "Player 1" | `Player2 -> "Player 2")) ]
+;;
+
+(* Render authentication screen *)
+let render_auth_screen 
+    ~email 
+    ~password 
+    ~set_email 
+    ~set_password 
+    ~on_sign_in 
+    ~on_sign_up
+    ~error =
+  Vdom.Node.div
+    ~attrs:[ Vdom.Attr.class_ "auth-container" ]
+    [ Vdom.Node.create "h2" 
+        ~attrs:[ Vdom.Attr.class_ "auth-title" ]
+        [ Vdom.Node.text "Sign In to Play" ]
+    ; Vdom.Node.div
+        ~attrs:[ Vdom.Attr.class_ "auth-form" ]
+        [ (match error with
+           | Some err_msg ->
+             Vdom.Node.div
+               ~attrs:[ Vdom.Attr.class_ "auth-error" ]
+               [ Vdom.Node.text err_msg ]
+           | None -> Vdom.Node.div ~attrs:[] [])
+        ; Vdom.Node.create "input"
+            ~attrs:[ Vdom.Attr.type_ "email"
+                   ; Vdom.Attr.class_ "auth-input"
+                   ; Vdom.Attr.placeholder "Email"
+                   ; Vdom.Attr.value email
+                   ; Vdom.Attr.on_input (fun _ text -> set_email text)
+                   ]
+            []
+        ; Vdom.Node.create "input"
+            ~attrs:[ Vdom.Attr.type_ "password"
+                   ; Vdom.Attr.class_ "auth-input"
+                   ; Vdom.Attr.placeholder "Password"
+                   ; Vdom.Attr.value password
+                   ; Vdom.Attr.on_input (fun _ text -> set_password text)
+                   ]
+            []
+        ; Vdom.Node.create "button"
+            ~attrs:[ Vdom.Attr.class_ "auth-btn"
+                   ; Vdom.Attr.on_click (fun _ -> on_sign_in ())
+                   ]
+            [ Vdom.Node.text "Sign In" ]
+        ; Vdom.Node.create "button"
+            ~attrs:[ Vdom.Attr.class_ "auth-btn"
+                   ; Vdom.Attr.on_click (fun _ -> on_sign_up ())
+                   ]
+            [ Vdom.Node.text "Sign Up" ]
+        ]
+    ]
+;;
+
+(* Render home/analytics screen *)
+let render_home_screen 
+    ~user_email 
+    ~wins 
+    ~losses 
+    ~on_create_lobby 
+    ~on_join_lobby
+    ~game_id_input
+    ~set_game_id_input
+    ~on_sign_out =
+  let win_rate = if wins + losses > 0 then
+    Float.of_int wins /. Float.of_int (wins + losses) *. 100.0
+  else 0.0 in
+  Vdom.Node.div
+    ~attrs:[ Vdom.Attr.class_ "home-container" ]
+    [ Vdom.Node.create "h1" 
+        ~attrs:[ Vdom.Attr.class_ "home-title" ]
+        [ Vdom.Node.text (sprintf "Welcome, %s!" user_email) ]
+    ; Vdom.Node.div
+        ~attrs:[ Vdom.Attr.class_ "stats-container" ]
+        [ Vdom.Node.div 
+            ~attrs:[ Vdom.Attr.class_ "stat-item" ]
+            [ Vdom.Node.text (sprintf "Wins: %d" wins) ]
+        ; Vdom.Node.div 
+            ~attrs:[ Vdom.Attr.class_ "stat-item" ]
+            [ Vdom.Node.text (sprintf "Losses: %d" losses) ]
+        ; Vdom.Node.div 
+            ~attrs:[ Vdom.Attr.class_ "stat-item" ]
+            [ Vdom.Node.text (sprintf "Win Rate: %.1f%%" win_rate) ]
+        ]
+    ; Vdom.Node.create "button"
+        ~attrs:[ Vdom.Attr.class_ "lobby-btn"
+               ; Vdom.Attr.on_click (fun _ -> on_create_lobby ())
+               ]
+        [ Vdom.Node.text "Create Game" ]
+    ; Vdom.Node.div
+        ~attrs:[ Vdom.Attr.class_ "join-section" ]
+        [ Vdom.Node.create "input"
+            ~attrs:
+              [ Vdom.Attr.type_ "text"
+              ; Vdom.Attr.placeholder "Enter Game ID"
+              ; Vdom.Attr.value game_id_input
+              ; Vdom.Attr.on_input (fun _ text -> set_game_id_input text)
+              ]
+            []
+        ; Vdom.Node.create "button"
+            ~attrs:
+              [ Vdom.Attr.class_ "lobby-btn"
+              ; Vdom.Attr.on_click (fun _ -> 
+                  if String.is_empty game_id_input 
+                  then Ui_effect.Ignore
+                  else on_join_lobby game_id_input)
+              ]
+            [ Vdom.Node.text "Join Game" ]
+        ]
+    ; Vdom.Node.create "button"
+        ~attrs:[ Vdom.Attr.class_ "auth-btn"
+               ; Vdom.Attr.on_click (fun _ -> on_sign_out ())
+               ]
+        [ Vdom.Node.text "Sign Out" ]
+    ]
+;;
+
+(* Render game over screen *)
+let render_game_over_screen 
+    ~won 
+    ~on_return_home =
+  let title, message, title_class = if won then
+    ("Victory!", "Congratulations! You defeated all enemies!", "victory-title")
+  else
+    ("Defeat", "All players have fallen. Better luck next time!", "defeat-title")
+  in
+  Vdom.Node.div
+    ~attrs:[ Vdom.Attr.class_ "game-over-container" ]
+    [ Vdom.Node.create "h1"
+        ~attrs:[ Vdom.Attr.class_ title_class ]
+        [ Vdom.Node.text title ]
+    ; Vdom.Node.create "p"
+        ~attrs:[ Vdom.Attr.class_ "game-over-message" ]
+        [ Vdom.Node.text message ]
+    ; Vdom.Node.create "button"
+        ~attrs:[ Vdom.Attr.class_ "lobby-btn"
+               ; Vdom.Attr.on_click (fun _ -> on_return_home ())
+               ]
+        [ Vdom.Node.text "Return to Home" ]
+    ]
 ;;
 
 (* Render game status message *)
@@ -530,8 +679,8 @@ let app =
       [ Card.Strike; Card.Defend; Card.Heal; Card.Strike; Card.Defend ]
     in
     let enemies = 
-      [ Enemy_state.create ~kind:"Orc" ~max_hp:50 ~intent:(Attack 8)
-      ; Enemy_state.create ~kind:"Dragon" ~max_hp:120 ~intent:(Attack 12)
+      [ Enemy_state.create ~kind:"Orc" ~max_hp:1 ~intent:(Attack 8)
+      ; Enemy_state.create ~kind:"Dragon" ~max_hp:1 ~intent:(Attack 12)
       ]
     in
     let game_state = 
@@ -547,10 +696,16 @@ let app =
     { game_state with player1 = player1_with_turn }
   in
   
-  (* Lobby state *)
-  let%sub lobby_screen, set_lobby_screen =
-    Bonsai.state ~default_model:Main_menu (module struct
-      type t = lobby_screen [@@deriving sexp, equal]
+  (* Auth and app state *)
+  let%sub current_user, set_current_user =
+    Bonsai.state ~default_model:None (module struct
+      type t = (string * string) option [@@deriving sexp, equal] (* (user_id, email) *)
+    end)
+  in
+  
+  let%sub app_screen, set_app_screen =
+    Bonsai.state ~default_model:(Auth_screen { email = ""; password = ""; is_signup = false; error = None }) (module struct
+      type t = app_screen [@@deriving sexp, equal]
     end)
   in
   
@@ -570,6 +725,13 @@ let app =
     end)
   in
   
+  (* Track if stats have been updated for current game *)
+  let%sub stats_updated_for_game, set_stats_updated_for_game =
+    Bonsai.state ~default_model:None (module struct
+      type t = string option [@@deriving sexp, equal] (* game_id if stats updated *)
+    end)
+  in
+  
   (* Bonsai state: game state + selected card *)
   let%sub game_state, set_game_state =
     Bonsai.state ~default_model:initial_state (module Game_state)
@@ -581,78 +743,216 @@ let app =
     end)
   in
   
-  (* Create lobby effect handler *)
-  let%sub create_lobby_effect =
-    let%arr set_lobby_screen = set_lobby_screen
+  (* Auth state for auth screen *)
+  let%sub auth_email, set_auth_email =
+    Bonsai.state ~default_model:"" (module String)
+  in
+  
+  let%sub auth_password, set_auth_password =
+    Bonsai.state ~default_model:"" (module String)
+  in
+  
+  let%sub auth_error, set_auth_error =
+    Bonsai.state ~default_model:None (module struct
+      type t = string option [@@deriving sexp, equal]
+    end)
+  in
+  
+  (* Sign in effect handler *)
+  let%sub sign_in_effect =
+    let%arr set_current_user = set_current_user
+    and set_app_screen = set_app_screen
+    and auth_email = auth_email
+    and auth_password = auth_password
+    and set_auth_error = set_auth_error in
+    let open Ui_effect.Let_syntax in
+    fun () ->
+      let%bind result = Firebase_effects.sign_in_effect ~email:auth_email ~password:auth_password () in
+      match result with
+      | Ok user ->
+        let user_id = Firebase_auth.Firebase_auth.get_user_id user in
+        let user_email = Firebase_auth.Firebase_auth.get_user_email user in
+        (* Fetch user stats - if it fails, create profile *)
+        let%bind stats_result = Firebase_effects.fetch_user_stats_effect ~user_id () in
+        let%bind wins, losses = match stats_result with
+          | Ok (w, l) -> 
+            Ui_effect.return (w, l)
+          | Error _ -> 
+            (* Profile doesn't exist, create it *)
+            let%bind _ = Firebase_effects.create_user_profile_effect ~user_id ~email:user_email () in
+            Ui_effect.return (0, 0)
+        in
+        Ui_effect.Many [
+          set_current_user (Some (user_id, user_email));
+          set_app_screen (Home_screen { user_id; user_email; wins; losses });
+          set_auth_error None
+        ]
+      | Error err ->
+        Ui_effect.Many [
+          set_auth_error (Some err)
+        ]
+  in
+  
+  (* Sign up effect handler *)
+  let%sub sign_up_effect =
+    let%arr set_current_user = set_current_user
+    and set_app_screen = set_app_screen
+    and auth_email = auth_email
+    and auth_password = auth_password
+    and set_auth_error = set_auth_error in
+    let open Ui_effect.Let_syntax in
+    fun () ->
+      let%bind result = Firebase_effects.sign_up_effect ~email:auth_email ~password:auth_password () in
+      match result with
+      | Ok user ->
+        let user_id = Firebase_auth.Firebase_auth.get_user_id user in
+        let user_email = Firebase_auth.Firebase_auth.get_user_email user in
+        (* Create user profile *)
+        let%bind _ = Firebase_effects.create_user_profile_effect ~user_id ~email:user_email () in
+        Ui_effect.Many [
+          set_current_user (Some (user_id, user_email));
+          set_app_screen (Home_screen { user_id; user_email; wins = 0; losses = 0 });
+          set_auth_error None
+        ]
+      | Error err ->
+        Ui_effect.Many [
+          set_auth_error (Some err)
+        ]
+  in
+  
+  (* Sign out effect handler *)
+  let%sub sign_out_effect =
+    let%arr set_current_user = set_current_user
+    and set_app_screen = set_app_screen
+    and set_game_id_input = set_game_id_input
     and set_current_game_id = set_current_game_id
     and set_player_role = set_player_role in
     let open Ui_effect.Let_syntax in
     fun () ->
-      (* Step 1: Show loading state immediately *)
-      let%bind () = set_lobby_screen Creating_lobby in
-      (* Step 2: Wait for async Firebase call *)
-      let%bind result = Firebase_effects.create_lobby_effect () in
-      (* Step 3: Update UI based on result *)
-      match result with
-      | Ok (game_id, players) ->
-        Ui_effect.Many [
-          set_current_game_id (Some game_id);
-          set_player_role (Some `Player1);
-          set_lobby_screen (In_lobby { game_id; players; is_host = true })
-        ]
-      | Error _err ->
-        Ui_effect.Many [
-          set_lobby_screen Main_menu;
-          (* In a real app, you'd show error message *)
-        ]
+      let%bind _ = Firebase_effects.sign_out_effect () in
+      Ui_effect.Many [
+        set_current_user None;
+        set_app_screen (Auth_screen { email = ""; password = ""; is_signup = false; error = None });
+        set_game_id_input "";
+        set_current_game_id None;
+        set_player_role None
+      ]
+  in
+  
+  (* Auth state listener - check on mount and when auth changes *)
+  let%sub auth_state_listener =
+    let%arr set_current_user = set_current_user
+    and set_app_screen = set_app_screen in
+    let open Ui_effect.Let_syntax in
+    (* Check current user on mount *)
+    match Firebase_auth.Firebase_auth.get_current_user () with
+    | Some user ->
+      let user_id = Firebase_auth.Firebase_auth.get_user_id user in
+      let user_email = Firebase_auth.Firebase_auth.get_user_email user in
+      let%bind stats_result = Firebase_effects.fetch_user_stats_effect ~user_id () in
+      let wins, losses = match stats_result with
+        | Ok (w, l) -> (w, l)
+        | Error _ -> (0, 0)
+      in
+      Ui_effect.Many [
+        set_current_user (Some (user_id, user_email));
+        set_app_screen (Home_screen { user_id; user_email; wins; losses })
+      ]
+    | None ->
+      Ui_effect.Ignore
+  in
+  
+  (* Run auth state listener on mount *)
+  let%sub () = 
+    Bonsai.Edge.lifecycle
+      ~on_activate:auth_state_listener
+      ()
+  in
+  
+  (* Create lobby effect handler *)
+  let%sub create_lobby_effect =
+    let%arr set_app_screen = set_app_screen
+    and set_current_game_id = set_current_game_id
+    and set_player_role = set_player_role
+    and set_stats_updated_for_game = set_stats_updated_for_game
+    and current_user = current_user in
+    let open Ui_effect.Let_syntax in
+    fun () ->
+      match current_user with
+      | None -> Ui_effect.Ignore (* Must be authenticated *)
+      | Some (user_id, user_email) ->
+        (* Step 1: Show loading state immediately *)
+        let%bind () = set_app_screen (Lobby_screen Creating_lobby) in
+        (* Step 2: Wait for async Firebase call *)
+        let%bind result = Firebase_effects.create_lobby_effect ~user_id ~user_email () in
+        (* Step 3: Update UI based on result *)
+        match result with
+        | Ok (game_id, players) ->
+          Ui_effect.Many [
+            set_current_game_id (Some game_id);
+            set_player_role (Some `Player1);
+            set_stats_updated_for_game None; (* Reset stats tracking for new game *)
+            set_app_screen (Lobby_screen (In_lobby { game_id; players; is_host = true }))
+          ]
+        | Error _err ->
+          Ui_effect.Many [
+            set_app_screen (Lobby_screen Main_menu);
+            (* In a real app, you'd show error message *)
+          ]
   in
   
   (* Join lobby effect handler *)
   let%sub join_lobby_effect =
-    let%arr set_lobby_screen = set_lobby_screen
+    let%arr set_app_screen = set_app_screen
     and set_current_game_id = set_current_game_id
     and set_player_role = set_player_role
-    and set_game_state = set_game_state in
+    and set_game_state = set_game_state
+    and set_stats_updated_for_game = set_stats_updated_for_game
+    and current_user = current_user in
     let open Ui_effect.Let_syntax in
     fun game_id ->
-      (* Step 1: Show loading state immediately *)
-      let%bind () = set_lobby_screen Joining_lobby in
-      (* Step 2: Wait for async Firebase call *)
-      let%bind result = Firebase_effects.join_lobby_effect ~game_id () in
-      (* Step 3: Update UI based on result *)
-      match result with
-      | Ok (game_id, players) ->
-        let%bind state_opt = Firebase_effects.fetch_game_state_effect ~game_id () in
-        let apply_state_effect =
-          match state_opt with
-          | Some state -> set_game_state state
-          | None -> Ui_effect.Ignore
-        in
-        Ui_effect.Many [
-          set_current_game_id (Some game_id);
-          set_player_role (Some `Player2);
-          apply_state_effect;
-          (* Player 2 should stay in In_lobby until polling callback detects valid game state *)
-          set_lobby_screen (In_lobby { game_id; players; is_host = false })
-        ]
-      | Error _err ->
-        Ui_effect.Many [
-          set_lobby_screen Main_menu;
-          (* In a real app, you'd show error message *)
-        ]
+      match current_user with
+      | None -> Ui_effect.Ignore (* Must be authenticated *)
+      | Some (user_id, user_email) ->
+        (* Step 1: Show loading state immediately *)
+        let%bind () = set_app_screen (Lobby_screen Joining_lobby) in
+        (* Step 2: Wait for async Firebase call *)
+        let%bind result = Firebase_effects.join_lobby_effect ~game_id ~user_id ~user_email () in
+        (* Step 3: Update UI based on result *)
+        match result with
+        | Ok (game_id, players) ->
+          let%bind state_opt = Firebase_effects.fetch_game_state_effect ~game_id () in
+          let apply_state_effect =
+            match state_opt with
+            | Some state -> set_game_state state
+            | None -> Ui_effect.Ignore
+          in
+          Ui_effect.Many [
+            set_current_game_id (Some game_id);
+            set_player_role (Some `Player2);
+            set_stats_updated_for_game None; (* Reset stats tracking for new game *)
+            apply_state_effect;
+            (* Player 2 should stay in In_lobby until polling callback detects valid game state *)
+            set_app_screen (Lobby_screen (In_lobby { game_id; players; is_host = false }))
+          ]
+        | Error _err ->
+          Ui_effect.Many [
+            set_app_screen (Lobby_screen Main_menu);
+            (* In a real app, you'd show error message *)
+          ]
   in
   
   (* Polling callback for lobby status to detect when player2 joins *)
   let%sub lobby_poll_callback =
-    let%arr lobby_screen = lobby_screen
-    and set_lobby_screen = set_lobby_screen
+    let%arr app_screen = app_screen
+    and set_app_screen = set_app_screen
     and set_game_state = set_game_state
     and current_game_id = current_game_id
     and player_role = player_role
     and game_state = game_state in
     let open Ui_effect.Let_syntax in
-    match current_game_id, lobby_screen with
-    | Some game_id, In_lobby { game_id = lobby_id; is_host; _ } when String.equal game_id lobby_id ->
+    match current_game_id, app_screen with
+    | Some game_id, Lobby_screen (In_lobby { game_id = lobby_id; is_host; _ }) when String.equal game_id lobby_id ->
       if is_host then (
         (* Player 1: Check if player 2 has joined, then save state and transition *)
         let%bind result = Firebase_effects.fetch_lobby_status_effect ~game_id () in
@@ -664,11 +964,11 @@ let app =
             match save_result with
             | Ok () ->
               Ui_effect.Many [
-                set_lobby_screen (In_game { game_id; player_role = Option.value_exn player_role })
+                set_app_screen (In_game { game_id; player_role = Option.value_exn player_role })
               ]
             | Error _ ->
               Ui_effect.Many [
-                set_lobby_screen (In_game { game_id; player_role = Option.value_exn player_role })
+                set_app_screen (In_game { game_id; player_role = Option.value_exn player_role })
               ]
           ) else
             Ui_effect.Ignore
@@ -680,11 +980,11 @@ let app =
         | Some state ->
           Ui_effect.Many [
             set_game_state state;
-            set_lobby_screen (In_game { game_id; player_role = Option.value_exn player_role })
+            set_app_screen (In_game { game_id; player_role = Option.value_exn player_role })
           ]
         | None ->
           Ui_effect.Many [
-            set_lobby_screen (In_game { game_id; player_role = Option.value_exn player_role })
+            set_app_screen (In_game { game_id; player_role = Option.value_exn player_role })
           ]
       )
     | _ -> Ui_effect.Ignore
@@ -702,14 +1002,14 @@ let app =
   let%sub poll_callback =
     let%arr set_game_state = set_game_state
     and current_game_id = current_game_id
-    and lobby_screen = lobby_screen in
+    and app_screen = app_screen in
     let open Ui_effect.Let_syntax in
     (* Only poll when in game *)
     match current_game_id with
     | None -> Ui_effect.Ignore
     | Some game_id ->
       (* Check if we're in game mode *)
-      let in_game = match lobby_screen with
+      let in_game = match app_screen with
         | In_game _ -> true
         | _ -> false
       in
@@ -744,18 +1044,92 @@ let app =
       poll_callback
   in
   
+  (* Game result tracking - update stats when game ends and show game over screen *)
+  let%sub game_end_handler =
+    let%arr game_state = game_state
+    and current_user = current_user
+    and current_game_id = current_game_id
+    and player_role = player_role
+    and set_app_screen = set_app_screen
+    and app_screen = app_screen
+    and stats_updated_for_game = stats_updated_for_game
+    and set_stats_updated_for_game = set_stats_updated_for_game in
+    let open Ui_effect.Let_syntax in
+    (* Only process if game ended, we're in game, and stats haven't been updated yet *)
+    match game_state.decision, current_user, current_game_id, player_role, app_screen, stats_updated_for_game with
+    | (Victory | Defeat), Some (user_id, user_email), Some game_id, Some _, In_game _, None ->
+      (* Determine if current user won *)
+      let won = match game_state.decision with
+        | Victory -> true
+        | Defeat -> false
+        | _ -> false
+      in
+      (* Update stats and wait for completion *)
+      let%bind _update_result = Firebase_effects.update_user_stats_effect ~user_id ~won () in
+      (* Note: Even if update fails, we still show game over screen *)
+      (* Mark stats as updated for this game and transition to game over screen *)
+      Ui_effect.Many [
+        set_stats_updated_for_game (Some game_id);
+        set_app_screen (Game_over { won; user_id; user_email })
+      ]
+    | _ -> Ui_effect.Ignore
+  in
+  
+  (* Return to home from game over screen *)
+  let%sub return_to_home_effect =
+    let%arr set_app_screen = set_app_screen
+    and current_user = current_user
+    and set_stats_updated_for_game = set_stats_updated_for_game
+    and set_current_game_id = set_current_game_id
+    and set_player_role = set_player_role in
+    let open Ui_effect.Let_syntax in
+    fun () ->
+      match current_user with
+      | None -> Ui_effect.Ignore
+      | Some (user_id, user_email) ->
+        (* Fetch updated stats - update should have completed by now *)
+        let%bind stats_result = Firebase_effects.fetch_user_stats_effect ~user_id () in
+        let wins, losses = match stats_result with
+          | Ok (w, l) -> (w, l)
+          | Error _ -> (0, 0)
+        in
+        Ui_effect.Many [
+          set_app_screen (Home_screen { user_id; user_email; wins; losses });
+          set_stats_updated_for_game None;
+          set_current_game_id None;
+          set_player_role None
+        ]
+  in
+  
+  (* Monitor game state for end condition *)
+  let%sub () = 
+    Bonsai.Clock.every 
+      ~when_to_start_next_effect:`Every_multiple_of_period_blocking
+      (Time_ns.Span.of_sec 1.0)
+      game_end_handler
+  in
+  
   (* Build the UI *)
   let%arr game_state = game_state
   and set_game_state = set_game_state
   and selected_card_index = selected_card_index
   and set_selected_card_index = set_selected_card_index
-  and lobby_screen = lobby_screen
+  and app_screen = app_screen
   and game_id_input = game_id_input
   and set_game_id_input = set_game_id_input
   and create_lobby_effect = create_lobby_effect
   and join_lobby_effect = join_lobby_effect
   and current_game_id = current_game_id
-  and player_role = player_role in
+  and player_role = player_role
+  and auth_email = auth_email
+  and set_auth_email = set_auth_email
+  and auth_password = auth_password
+  and set_auth_password = set_auth_password
+  and sign_in_effect = sign_in_effect
+  and sign_up_effect = sign_up_effect
+  and sign_out_effect = sign_out_effect
+  and auth_error = auth_error
+  and return_to_home_effect = return_to_home_effect in
   
   (* Check if it's the current player's turn *)
   let is_my_turn =
@@ -832,19 +1206,39 @@ in
     Ui_effect.Many [ set_game_state final_state; save_effect ]
   in
   
-  (* Render based on lobby screen state *)
-  match lobby_screen with
-  | Main_menu | Creating_lobby | Joining_lobby | In_lobby _ ->
+  (* Render based on app screen state *)
+  match app_screen with
+  | Auth_screen _ ->
+    render_auth_screen
+      ~email:auth_email
+      ~password:auth_password
+      ~set_email:set_auth_email
+      ~set_password:set_auth_password
+      ~on_sign_in:sign_in_effect
+      ~on_sign_up:sign_up_effect
+      ~error:auth_error
+  | Home_screen { user_email; wins; losses; _ } ->
+    render_home_screen
+      ~user_email
+      ~wins
+      ~losses
+      ~on_create_lobby:create_lobby_effect
+      ~on_join_lobby:join_lobby_effect
+      ~game_id_input
+      ~set_game_id_input
+      ~on_sign_out:sign_out_effect
+  | Lobby_screen lobby_screen_state ->
     render_lobby_ui
-      ~lobby_screen
+      ~lobby_screen:lobby_screen_state
       ~game_id_input
       ~set_game_id_input
       ~on_create_lobby:create_lobby_effect
       ~on_join_lobby:join_lobby_effect
   | In_game { game_id = _; player_role = _ } ->
-  Vdom.Node.div
-    ~attrs:[ Vdom.Attr.class_ "game-container" ]
-    [ render_header ()
+    (* Show game screen - game over screen will be shown via Game_over state *)
+    Vdom.Node.div
+      ~attrs:[ Vdom.Attr.class_ "game-container" ]
+      [ render_header ()
       ; (match current_game_id with
          | Some id -> render_lobby_ui
              ~lobby_screen:(In_game { game_id = id; player_role = Option.value_exn player_role })
@@ -853,10 +1247,14 @@ in
              ~on_create_lobby:create_lobby_effect
              ~on_join_lobby:join_lobby_effect
          | None -> Vdom.Node.div ~attrs:[] [])
-    ; render_game_status game_state.decision
-    ; render_battle_area game_state ~selected_card_index ~on_target_click
+      ; render_game_status game_state.decision
+      ; render_battle_area game_state ~selected_card_index ~on_target_click
       ; render_hand game_state ~selected_card_index ~on_card_select ~on_end_turn ~is_my_turn ~player_role
-    ]
+      ]
+  | Game_over { won; user_email = _; _ } ->
+    render_game_over_screen
+      ~won
+      ~on_return_home:return_to_home_effect
 ;;
 
 (* Start the Bonsai app *)

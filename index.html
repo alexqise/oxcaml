@@ -29,33 +29,35 @@
   <body>
     <div id="app"></div>
     
-    <!-- Firebase initialization - loaded asynchronously after page load to avoid blocking -->
+    <!-- Firebase SDKs - using CDN for namespace API compatibility -->
+    <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-analytics-compat.js"></script>
+    
+    <!-- Firebase initialization -->
     <script>
-      // Load Firebase after the page has loaded to avoid blocking Bonsai initialization
+      // Initialize Firebase after page load to avoid blocking Bonsai
       window.addEventListener('load', function() {
-        // Use dynamic import to load Firebase modules asynchronously
-        import("https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js").then(({ initializeApp }) => {
-          return import("https://www.gstatic.com/firebasejs/12.6.0/firebase-analytics.js").then(({ getAnalytics }) => {
-            const firebaseConfig = {
-              apiKey: "AIzaSyAMNg5zUEAiwLU4TDTlLhGm3Pqp032se5Q",
-              authDomain: "coop-slaythespire.firebaseapp.com",
-              projectId: "coop-slaythespire",
-              storageBucket: "coop-slaythespire.firebasestorage.app",
-              messagingSenderId: "783879862672",
-              appId: "1:783879862672:web:720391cc095eeed0f81b15",
-              measurementId: "G-MYW8H985KZ"
-            };
-            
-            try {
-              const app = initializeApp(firebaseConfig);
-              const analytics = getAnalytics(app);
-            } catch (error) {
-              console.warn("Firebase initialization failed (non-critical):", error);
-            }
-          });
-        }).catch(error => {
-          console.warn("Firebase SDK failed to load (non-critical):", error);
-        });
+        const firebaseConfig = {
+          apiKey: "AIzaSyAMNg5zUEAiwLU4TDTlLhGm3Pqp032se5Q",
+          authDomain: "coop-slaythespire.firebaseapp.com",
+          projectId: "coop-slaythespire",
+          storageBucket: "coop-slaythespire.firebasestorage.app",
+          messagingSenderId: "783879862672",
+          appId: "1:783879862672:web:720391cc095eeed0f81b15",
+          measurementId: "G-MYW8H985KZ"
+        };
+        
+        try {
+          // Initialize Firebase (compat library provides firebase namespace)
+          firebase.initializeApp(firebaseConfig);
+          const auth = firebase.auth();
+          const analytics = firebase.analytics();
+          // Make Firebase Auth available globally
+          window.firebase = { auth: () => auth };
+        } catch (error) {
+          console.warn("Firebase initialization failed (non-critical):", error);
+        }
       });
     </script>
   </body>

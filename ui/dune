@@ -1,6 +1,7 @@
 (executables
  (modes js)
  (names tictactoe_ui hw6_slaythespire_ui)
+ (modules tictactoe_ui hw6_slaythespire_ui firebase_http firebase_async firebase_effects firebase_auth game_state_serializer)
  (libraries bonsai.web core virtual_dom tictactoe_logic_library js_of_ocaml re)
  (preprocess
   (pps ppx_jane bonsai.ppx_bonsai)))
