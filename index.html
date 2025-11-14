@@ -81,6 +81,7 @@
     <!-- Firebase SDKs - using CDN for namespace API compatibility -->
     <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-analytics-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-messaging-compat.js"></script>
 
@@ -102,17 +103,27 @@
           // Initialize Firebase (compat library provides firebase namespace)
           firebase.initializeApp(firebaseConfig);
           const auth = firebase.auth();
+          const firestore = firebase.firestore();
           const analytics = firebase.analytics();
           const messaging = firebase.messaging();
-          // Make Firebase Auth available globally
 
-          window.firebase = { auth: () => auth };
+          // Keep the original firebase namespace intact (needed for GoogleAuthProvider)
+          // and add helpers for OCaml to get the auth and firestore instances
+          window.firebaseAuth = auth;
+          window.firebaseFirestore = firestore;
+          // firebase namespace remains available globally via the compat SDK
 
           if ("serviceWorker" in navigator) {
             navigator.serviceWorker
               .register("/firebase-messaging-sw.js")
               .then(function (registration) {
                 console.log("Service worker registered:", registration);
+
+                // Wait for service worker to be ready before getting token
+                return navigator.serviceWorker.ready;
+              })
+              .then(function (registration) {
+                console.log("Service worker is ready:", registration);
 
                 // Check current notification permission
                 checkNotificationPermission();
@@ -126,11 +137,17 @@
 
           // Check if we need to show the notification prompt
           function checkNotificationPermission() {
+            console.log(
+              "Notification permission status:",
+              Notification.permission
+            );
             if (Notification.permission === "granted") {
               // Already granted, get token immediately
+              console.log("Permission granted, getting token...");
               getTokenAndLog();
             } else if (Notification.permission === "default") {
               // Auto-request permission without showing custom button
+              console.log("Permission not set, requesting...");
               askPermissionAndGetToken();
             } else {
               console.log("Notification permission denied");
@@ -175,16 +192,25 @@
           }
 
           function getTokenAndLog() {
+            console.log("getTokenAndLog() called");
+
             // Replace with your VAPID public key
             const vapidKey =
               "BP75Vz4zkiRQfQ-EgLflsPRDjKSzpNl5My1-v3JgmrRGHyMK4mkcR1fBeK8cQj7EoDrxeIDFhifrP5oU47jprzw";
+
+            console.log("Requesting FCM token with VAPID key...");
 
             messaging
               .getToken({ vapidKey })
               .then(function (currentToken) {
                 if (currentToken) {
-                  console.log("FCM token:", currentToken);
-                  console.log("Copy this token to send test notifications!");
+                  console.log("========================================");
+                  console.log("✅ FCM TOKEN:");
+                  console.log(currentToken);
+                  console.log("========================================");
+                  console.log(
+                    "Copy the token above to send test notifications!"
+                  );
                   // TODO: send this token to backend or copy it for testing
                 } else {
                   console.log(
@@ -193,14 +219,30 @@
                 }
               })
               .catch(function (err) {
-                console.error("An error occurred while retrieving token.", err);
+                console.error("❌ ERROR getting token:", err);
+                console.error("Full error details:", err.message, err.code);
               });
           }
 
-          // Optional: handle messages when the page is in the foreground
+          // Handle messages when the page is in the foreground
           messaging.onMessage(function (payload) {
             console.log("Message received in foreground:", payload);
-            // You can show an in-app popup or toast here instead of a system notification
+
+            // Extract notification data
+            const notificationTitle =
+              payload.notification?.title || "New Message";
+            const notificationOptions = {
+              body: payload.notification?.body || "You have a new notification",
+              icon: payload.notification?.icon || "/assets/ironclad.png",
+              badge: "/assets/ironclad.png",
+              tag: "game-notification",
+              requireInteraction: true, // Auto-dismiss after a few seconds
+            };
+
+            // Show browser notification even when page is open
+            if (Notification.permission === "granted") {
+              new Notification(notificationTitle, notificationOptions);
+            }
           });
         } catch (error) {
           console.warn("Firebase initialization failed (non-critical):", error);

@@ -4,6 +4,17 @@ open Hw2_slaythespire_logic
 open Virtual_dom
 open! Bonsai.Let_syntax
 open Firebase_effects
+open Js_of_ocaml
+
+(* Simple JS console logger for UI-level debugging.
+   This helps verify that the Google sign-in button and handler run. *)
+let js_log (msg : string) =
+  try
+    let console = Js.Unsafe.get Js.Unsafe.global "console" in
+    ignore
+      (Js.Unsafe.meth_call console "log"
+         [| Js.Unsafe.inject (Js.string ("[UI] " ^ msg)) |])
+  with _ -> ()
 
 (* define the helper methods here *)
 
@@ -245,7 +256,7 @@ type lobby_screen =
 (* App screen state - includes auth, home, lobby, and game states *)
 type app_screen =
   | Auth_screen of { email : string; password : string; is_signup : bool; error : string option }
-  | Home_screen of { user_id : string; user_email : string; wins : int; losses : int }
+  | Home_screen of { user_id : string; user_email : string; user_display_name : string option; user_photo_url : string option; wins : int; losses : int }
   | Lobby_screen of lobby_screen
   | In_game of { game_id : string; player_role : [`Player1 | `Player2] }
   | Game_over of { won : bool; user_id : string; user_email : string }
@@ -349,6 +360,7 @@ let render_auth_screen
     ~set_password 
     ~on_sign_in 
     ~on_sign_up
+    ~on_google_sign_in
     ~error =
   Vdom.Node.div
     ~attrs:[ Vdom.Attr.class_ "auth-container" ]
@@ -389,6 +401,11 @@ let render_auth_screen
                    ; Vdom.Attr.on_click (fun _ -> on_sign_up ())
                    ]
             [ Vdom.Node.text "Sign Up" ]
+        ; Vdom.Node.create "button"
+            ~attrs:[ Vdom.Attr.class_ "auth-btn"
+                   ; Vdom.Attr.on_click (fun _ -> on_google_sign_in ())
+                   ]
+            [ Vdom.Node.text "Sign in with Google" ]
         ]
     ]
 ;;
@@ -396,6 +413,8 @@ let render_auth_screen
 (* Render home/analytics screen *)
 let render_home_screen 
     ~user_email 
+    ~user_display_name
+    ~user_photo_url
     ~wins 
     ~losses 
     ~on_create_lobby 
@@ -406,11 +425,37 @@ let render_home_screen
   let win_rate = if wins + losses > 0 then
     Float.of_int wins /. Float.of_int (wins + losses) *. 100.0
   else 0.0 in
+  (* Use display name if available, otherwise fall back to email *)
+  let display_text = match user_display_name with
+    | Some name -> name
+    | None -> user_email
+  in
   Vdom.Node.div
     ~attrs:[ Vdom.Attr.class_ "home-container" ]
-    [ Vdom.Node.create "h1" 
+    [ (* User profile section with optional photo *)
+      (match user_photo_url with
+       | Some photo_url ->
+         Vdom.Node.div
+           ~attrs:[ Vdom.Attr.class_ "user-profile" ]
+           [ Vdom.Node.create "img"
+               ~attrs:[ Vdom.Attr.class_ "profile-photo"
+                      ; Vdom.Attr.create "src" photo_url
+                      ; Vdom.Attr.create "alt" "Profile"
+                      ; Vdom.Attr.style (Css_gen.create
+                          ~field:"border-radius" ~value:"50%")
+                      ; Vdom.Attr.style (Css_gen.create
+                          ~field:"width" ~value:"80px")
+                      ; Vdom.Attr.style (Css_gen.create
+                          ~field:"height" ~value:"80px")
+                      ; Vdom.Attr.style (Css_gen.create
+                          ~field:"object-fit" ~value:"cover")
+                      ]
+               []
+           ]
+       | None -> Vdom.Node.div ~attrs:[] [])
+    ; Vdom.Node.create "h1" 
         ~attrs:[ Vdom.Attr.class_ "home-title" ]
-        [ Vdom.Node.text (sprintf "Welcome, %s!" user_email) ]
+        [ Vdom.Node.text (sprintf "Welcome, %s!" display_text) ]
     ; Vdom.Node.div
         ~attrs:[ Vdom.Attr.class_ "stats-container" ]
         [ Vdom.Node.div 
@@ -758,6 +803,77 @@ let app =
     end)
   in
   
+  (* Google sign-in effect handler *)
+  let%sub google_sign_in_effect =
+    let%arr set_current_user = set_current_user
+    and set_app_screen = set_app_screen
+    and set_auth_error = set_auth_error in
+    let open Ui_effect.Let_syntax in
+    fun () ->
+      (* Trigger Google OAuth popup via Firebase Auth *)
+      js_log "Google sign-in button clicked";
+      let%bind result = Firebase_effects.google_sign_in_effect () in
+      match result with
+      | Ok user ->
+        (* Debug: log the entire user object structure *)
+        js_log "Google sign-in returned user object";
+        (try
+          let user_json = Js.Unsafe.meth_call 
+            (Js.Unsafe.get Js.Unsafe.global "JSON") "stringify" 
+            [| Js.Unsafe.inject user |] in
+          js_log (sprintf "User object: %s" (Js.to_string user_json))
+        with _ -> js_log "Could not stringify user object");
+        
+        let user_id = Firebase_auth.Firebase_auth.get_user_id user in
+        (* Validate user_id is not empty *)
+        if String.is_empty user_id then
+          let error_msg = "Google sign-in succeeded but user ID is empty" in
+          let () = js_log error_msg in
+          Ui_effect.Many [ set_auth_error (Some error_msg) ]
+        else
+          let user_email = Firebase_auth.Firebase_auth.get_user_email user in
+          (* Extract display name and photo URL from Google Auth *)
+          let user_display_name = Firebase_auth.Firebase_auth.get_user_display_name user in
+          let user_photo_url = Firebase_auth.Firebase_auth.get_user_photo_url user in
+          js_log (sprintf "Extracted: uid=%s email=%s name=%s photo=%s" 
+            user_id user_email 
+            (Option.value user_display_name ~default:"(none)")
+            (Option.value user_photo_url ~default:"(none)"));
+          
+          (* Explicitly check if user exists and create if not *)
+          let%bind user_exists = Firebase_effects.user_exists_effect ~user_id () in
+          let%bind wins, losses =
+            if user_exists then
+              (* User exists, fetch stats *)
+              let%bind stats_result = Firebase_effects.fetch_user_stats_effect ~user_id () in
+              match stats_result with
+              | Ok (w, l) -> Ui_effect.return (w, l)
+              | Error _ -> Ui_effect.return (0, 0)  (* Fallback if fetch fails *)
+            else
+              (* User doesn't exist, create profile *)
+              let () = js_log (sprintf "Creating new user profile for: %s" user_id) in
+              let%bind create_result = Firebase_effects.create_user_profile_effect ~user_id ~email:user_email () in
+              match create_result with
+              | Ok () -> 
+                  let () = js_log (sprintf "Successfully created user profile for: %s" user_id) in
+                  Ui_effect.return (0, 0)
+              | Error err ->
+                  let () = js_log (sprintf "Failed to create user profile: %s" err) in
+                  Ui_effect.return (0, 0)  (* Continue anyway *)
+          in
+          (* Register FCM token and schedule reminder just like email/password *)
+          let%bind _ = Firebase_effects.register_fcm_token_effect ~user_id () in
+          let%bind _ = Firebase_effects.schedule_daily_reminder_effect ~user_id () in
+          Ui_effect.Many
+            [ set_current_user (Some (user_id, user_email))
+            ; set_app_screen (Home_screen { user_id; user_email; user_display_name; user_photo_url; wins; losses })
+            ; set_auth_error None
+            ]
+      | Error err ->
+        js_log (sprintf "Google sign-in failed: %s" err);
+        Ui_effect.Many [ set_auth_error (Some err) ]
+  in
+  
   (* Sign in effect handler *)
   let%sub sign_in_effect =
     let%arr set_current_user = set_current_user
@@ -771,22 +887,32 @@ let app =
       match result with
       | Ok user ->
         let user_id = Firebase_auth.Firebase_auth.get_user_id user in
-        let user_email = Firebase_auth.Firebase_auth.get_user_email user in
-        (* Fetch user stats - if it fails, create profile *)
-        let%bind stats_result = Firebase_effects.fetch_user_stats_effect ~user_id () in
-        let%bind wins, losses = match stats_result with
-          | Ok (w, l) -> 
-            Ui_effect.return (w, l)
-          | Error _ -> 
-            (* Profile doesn't exist, create it *)
-            let%bind _ = Firebase_effects.create_user_profile_effect ~user_id ~email:user_email () in
-            Ui_effect.return (0, 0)
-        in
-        Ui_effect.Many [
-          set_current_user (Some (user_id, user_email));
-          set_app_screen (Home_screen { user_id; user_email; wins; losses });
-          set_auth_error None
-        ]
+        (* Validate user_id is not empty *)
+        if String.is_empty user_id then
+          let error_msg = "Authentication succeeded but user ID is empty" in
+          let () = js_log error_msg in
+          Ui_effect.Many [ set_auth_error (Some error_msg) ]
+        else
+          let user_email = Firebase_auth.Firebase_auth.get_user_email user in
+          (* Fetch user stats - if it fails, create profile *)
+          let%bind stats_result = Firebase_effects.fetch_user_stats_effect ~user_id () in
+          let%bind wins, losses = match stats_result with
+            | Ok (w, l) -> 
+              Ui_effect.return (w, l)
+            | Error _ -> 
+              (* Profile doesn't exist, create it *)
+              let%bind _ = Firebase_effects.create_user_profile_effect ~user_id ~email:user_email () in
+              Ui_effect.return (0, 0)
+          in
+          (* Register FCM token for push notifications *)
+          let%bind _ = Firebase_effects.register_fcm_token_effect ~user_id () in
+          (* Schedule daily reminder *)
+          let%bind _ = Firebase_effects.schedule_daily_reminder_effect ~user_id () in
+          Ui_effect.Many [
+            set_current_user (Some (user_id, user_email));
+            set_app_screen (Home_screen { user_id; user_email; user_display_name = None; user_photo_url = None; wins; losses });
+            set_auth_error None
+          ]
       | Error err ->
         Ui_effect.Many [
           set_auth_error (Some err)
@@ -806,14 +932,24 @@ let app =
       match result with
       | Ok user ->
         let user_id = Firebase_auth.Firebase_auth.get_user_id user in
-        let user_email = Firebase_auth.Firebase_auth.get_user_email user in
-        (* Create user profile *)
-        let%bind _ = Firebase_effects.create_user_profile_effect ~user_id ~email:user_email () in
-        Ui_effect.Many [
-          set_current_user (Some (user_id, user_email));
-          set_app_screen (Home_screen { user_id; user_email; wins = 0; losses = 0 });
-          set_auth_error None
-        ]
+        (* Validate user_id is not empty *)
+        if String.is_empty user_id then
+          let error_msg = "Sign up succeeded but user ID is empty" in
+          let () = js_log error_msg in
+          Ui_effect.Many [ set_auth_error (Some error_msg) ]
+        else
+          let user_email = Firebase_auth.Firebase_auth.get_user_email user in
+          (* Create user profile *)
+          let%bind _ = Firebase_effects.create_user_profile_effect ~user_id ~email:user_email () in
+          (* Register FCM token for push notifications *)
+          let%bind _ = Firebase_effects.register_fcm_token_effect ~user_id () in
+          (* Schedule daily reminder *)
+          let%bind _ = Firebase_effects.schedule_daily_reminder_effect ~user_id () in
+          Ui_effect.Many [
+            set_current_user (Some (user_id, user_email));
+            set_app_screen (Home_screen { user_id; user_email; user_display_name = None; user_photo_url = None; wins = 0; losses = 0 });
+            set_auth_error None
+          ]
       | Error err ->
         Ui_effect.Many [
           set_auth_error (Some err)
@@ -848,16 +984,24 @@ let app =
     match Firebase_auth.Firebase_auth.get_current_user () with
     | Some user ->
       let user_id = Firebase_auth.Firebase_auth.get_user_id user in
-      let user_email = Firebase_auth.Firebase_auth.get_user_email user in
-      let%bind stats_result = Firebase_effects.fetch_user_stats_effect ~user_id () in
-      let wins, losses = match stats_result with
-        | Ok (w, l) -> (w, l)
-        | Error _ -> (0, 0)
-      in
-      Ui_effect.Many [
-        set_current_user (Some (user_id, user_email));
-        set_app_screen (Home_screen { user_id; user_email; wins; losses })
-      ]
+      (* Validate user_id is not empty - if empty, treat as no user *)
+      if String.is_empty user_id then
+        let () = js_log "Warning: User object found but user_id is empty, treating as logged out" in
+        Ui_effect.Ignore
+      else
+        let user_email = Firebase_auth.Firebase_auth.get_user_email user in
+        (* Also extract display name and photo for persisted Google sessions *)
+        let user_display_name = Firebase_auth.Firebase_auth.get_user_display_name user in
+        let user_photo_url = Firebase_auth.Firebase_auth.get_user_photo_url user in
+        let%bind stats_result = Firebase_effects.fetch_user_stats_effect ~user_id () in
+        let wins, losses = match stats_result with
+          | Ok (w, l) -> (w, l)
+          | Error _ -> (0, 0)
+        in
+        Ui_effect.Many [
+          set_current_user (Some (user_id, user_email));
+          set_app_screen (Home_screen { user_id; user_email; user_display_name; user_photo_url; wins; losses })
+        ]
     | None ->
       Ui_effect.Ignore
   in
@@ -881,24 +1025,53 @@ let app =
       match current_user with
       | None -> Ui_effect.Ignore (* Must be authenticated *)
       | Some (user_id, user_email) ->
-        (* Step 1: Show loading state immediately *)
-        let%bind () = set_app_screen (Lobby_screen Creating_lobby) in
-        (* Step 2: Wait for async Firebase call *)
-        let%bind result = Firebase_effects.create_lobby_effect ~user_id ~user_email () in
-        (* Step 3: Update UI based on result *)
-        match result with
-        | Ok (game_id, players) ->
-          Ui_effect.Many [
-            set_current_game_id (Some game_id);
-            set_player_role (Some `Player1);
-            set_stats_updated_for_game None; (* Reset stats tracking for new game *)
-            set_app_screen (Lobby_screen (In_lobby { game_id; players; is_host = true }))
-          ]
-        | Error _err ->
-          Ui_effect.Many [
-            set_app_screen (Lobby_screen Main_menu);
-            (* In a real app, you'd show error message *)
-          ]
+        (* Validate user_id is not empty *)
+        if String.is_empty user_id then
+          let () = js_log "Error: Cannot create lobby - user_id is empty" in
+          Ui_effect.Ignore
+        else
+          (* Step 1: Show loading state immediately *)
+          let%bind () = set_app_screen (Lobby_screen Creating_lobby) in
+          (* Step 2: Wait for async Firebase call *)
+          let%bind result = Firebase_effects.create_lobby_effect ~user_id ~user_email () in
+          (* Step 3: Update UI based on result *)
+          match result with
+          | Ok (game_id, players) ->
+            (* Step 4: Get FCM token and store it in game document *)
+            let () = js_log (sprintf "Creating lobby - getting FCM token for user: %s" user_id) in
+            let%bind fcm_result = Firebase_effects.register_fcm_token_effect ~user_id () in
+            let fcm_token = match fcm_result with
+              | Ok token -> 
+                  let () = js_log (sprintf "✅ Got FCM token: %s..." (String.prefix token 20)) in
+                  Some token
+              | Error err -> 
+                  let () = js_log (sprintf "❌ Failed to get FCM token: %s" err) in
+                  None
+            in
+            (* Store FCM token in game document for Player 1 - execute sequentially *)
+            let%bind storage_result = match fcm_token with
+              | Some token -> 
+                  let () = js_log (sprintf "Storing FCM token in game document for Player1, game: %s" game_id) in
+                  Firebase_effects.update_game_player_fcm_token_effect ~game_id ~player_role:`Player1 ~fcm_token:token ()
+              | None -> 
+                  let () = js_log "⚠️ No FCM token to store" in
+                  Ui_effect.return (Ok ())
+            in
+            (match storage_result with
+            | Ok () -> js_log "✅ FCM token stored successfully in game document"
+            | Error err -> js_log (sprintf "❌ Failed to store FCM token: %s" err)
+            );
+            Ui_effect.Many [
+              set_current_game_id (Some game_id);
+              set_player_role (Some `Player1);
+              set_stats_updated_for_game None; (* Reset stats tracking for new game *)
+              set_app_screen (Lobby_screen (In_lobby { game_id; players; is_host = true }))
+            ]
+          | Error _err ->
+            Ui_effect.Many [
+              set_app_screen (Lobby_screen Main_menu);
+              (* In a real app, you'd show error message *)
+            ]
   in
   
   (* Join lobby effect handler *)
@@ -914,32 +1087,61 @@ let app =
       match current_user with
       | None -> Ui_effect.Ignore (* Must be authenticated *)
       | Some (user_id, user_email) ->
-        (* Step 1: Show loading state immediately *)
-        let%bind () = set_app_screen (Lobby_screen Joining_lobby) in
-        (* Step 2: Wait for async Firebase call *)
-        let%bind result = Firebase_effects.join_lobby_effect ~game_id ~user_id ~user_email () in
-        (* Step 3: Update UI based on result *)
-        match result with
-        | Ok (game_id, players) ->
-          let%bind state_opt = Firebase_effects.fetch_game_state_effect ~game_id () in
-          let apply_state_effect =
-            match state_opt with
-            | Some state -> set_game_state state
-            | None -> Ui_effect.Ignore
-          in
-          Ui_effect.Many [
-            set_current_game_id (Some game_id);
-            set_player_role (Some `Player2);
-            set_stats_updated_for_game None; (* Reset stats tracking for new game *)
-            apply_state_effect;
-            (* Player 2 should stay in In_lobby until polling callback detects valid game state *)
-            set_app_screen (Lobby_screen (In_lobby { game_id; players; is_host = false }))
-          ]
-        | Error _err ->
-          Ui_effect.Many [
-            set_app_screen (Lobby_screen Main_menu);
-            (* In a real app, you'd show error message *)
-          ]
+        (* Validate user_id is not empty *)
+        if String.is_empty user_id then
+          let () = js_log "Error: Cannot join lobby - user_id is empty" in
+          Ui_effect.Ignore
+        else
+          (* Step 1: Show loading state immediately *)
+          let%bind () = set_app_screen (Lobby_screen Joining_lobby) in
+          (* Step 2: Wait for async Firebase call *)
+          let%bind result = Firebase_effects.join_lobby_effect ~game_id ~user_id ~user_email () in
+          (* Step 3: Update UI based on result *)
+          match result with
+          | Ok (game_id, players) ->
+            (* Step 4: Get FCM token and store it in game document *)
+            let () = js_log (sprintf "Joining lobby - getting FCM token for user: %s" user_id) in
+            let%bind fcm_result = Firebase_effects.register_fcm_token_effect ~user_id () in
+            let fcm_token = match fcm_result with
+              | Ok token -> 
+                  let () = js_log (sprintf "✅ Got FCM token: %s..." (String.prefix token 20)) in
+                  Some token
+              | Error err -> 
+                  let () = js_log (sprintf "❌ Failed to get FCM token: %s" err) in
+                  None
+            in
+            (* Store FCM token in game document for Player 2 - execute sequentially *)
+            let%bind storage_result = match fcm_token with
+              | Some token -> 
+                  let () = js_log (sprintf "Storing FCM token in game document for Player2, game: %s" game_id) in
+                  Firebase_effects.update_game_player_fcm_token_effect ~game_id ~player_role:`Player2 ~fcm_token:token ()
+              | None -> 
+                  let () = js_log "⚠️ No FCM token to store" in
+                  Ui_effect.return (Ok ())
+            in
+            (match storage_result with
+            | Ok () -> js_log "✅ FCM token stored successfully in game document"
+            | Error err -> js_log (sprintf "❌ Failed to store FCM token: %s" err)
+            );
+            let%bind state_opt = Firebase_effects.fetch_game_state_effect ~game_id () in
+            let apply_state_effect =
+              match state_opt with
+              | Some state -> set_game_state state
+              | None -> Ui_effect.Ignore
+            in
+            Ui_effect.Many [
+              set_current_game_id (Some game_id);
+              set_player_role (Some `Player2);
+              set_stats_updated_for_game None; (* Reset stats tracking for new game *)
+              apply_state_effect;
+              (* Player 2 should stay in In_lobby until polling callback detects valid game state *)
+              set_app_screen (Lobby_screen (In_lobby { game_id; players; is_host = false }))
+            ]
+          | Error _err ->
+            Ui_effect.Many [
+              set_app_screen (Lobby_screen Main_menu);
+              (* In a real app, you'd show error message *)
+            ]
   in
   
   (* Polling callback for lobby status to detect when player2 joins *)
@@ -1094,7 +1296,7 @@ let app =
           | Error _ -> (0, 0)
         in
         Ui_effect.Many [
-          set_app_screen (Home_screen { user_id; user_email; wins; losses });
+          set_app_screen (Home_screen { user_id; user_email; user_display_name = None; user_photo_url = None; wins; losses });
           set_stats_updated_for_game None;
           set_current_game_id None;
           set_player_role None
@@ -1127,6 +1329,7 @@ let app =
   and set_auth_password = set_auth_password
   and sign_in_effect = sign_in_effect
   and sign_up_effect = sign_up_effect
+  and google_sign_in_effect = google_sign_in_effect
   and sign_out_effect = sign_out_effect
   and auth_error = auth_error
   and return_to_home_effect = return_to_home_effect in
@@ -1187,23 +1390,80 @@ in
   
   (* End turn button handler - also saves to Firebase, only if it's your turn *)
   let on_end_turn () =
-    if not is_my_turn then Ui_effect.Ignore
+    if not is_my_turn then (
+      let () = js_log "End turn called but not my turn" in
+      Ui_effect.Ignore
+    )
     else
+    let () = js_log "End turn called - processing turn end" in
     let new_state = Game_state.end_turn game_state in
     (* If it's enemy turn, process enemy actions *)
     let final_state = 
       match new_state.decision with
       | In_progress { whose_turn = `Enemy } -> 
+        let () = js_log "Enemy turn detected, processing enemy actions" in
         Game_state.process_enemy_turn new_state
       | _ -> new_state
     in
     let save_effect = match current_game_id with
       | Some game_id -> 
+        let () = js_log (sprintf "Saving game state for game: %s" game_id) in
         Ui_effect.map (Firebase_effects.save_game_state_effect ~game_id ~game_state:final_state ()) 
           ~f:(fun _ -> ())
-      | None -> Ui_effect.Ignore
+      | None -> 
+        let () = js_log "No game ID - skipping save" in
+        Ui_effect.Ignore
     in
-    Ui_effect.Many [ set_game_state final_state; save_effect ]
+    (* Notify the other player it's their turn (in multiplayer) *)
+    let notification_effect = match current_game_id, player_role, final_state.decision with
+      | Some game_id, Some role, In_progress { whose_turn } ->
+        let () = js_log (sprintf "Checking notification: game_id=%s, my_role=%s, next_turn=%s" 
+          game_id
+          (match role with `Player1 -> "Player1" | `Player2 -> "Player2")
+          (match whose_turn with `Player1 -> "Player1" | `Player2 -> "Player2" | `Enemy -> "Enemy")) in
+        (* Determine who should be notified *)
+        let should_notify = match role, whose_turn with
+          | `Player1, `Player2 -> true  (* I'm player1, now it's player2's turn *)
+          | `Player2, `Player1 -> true  (* I'm player2, now it's player1's turn *)
+          | _ -> false  (* Enemy turn or same player, no notification *)
+        in
+        if should_notify then (
+          let () = js_log (sprintf "Should notify! Triggering notification for %s" 
+            (match whose_turn with `Player1 -> "Player1" | `Player2 -> "Player2" | `Enemy -> "Enemy")) in
+          (* Notify the player whose turn it is now (only if it's a player, not enemy) *)
+          match whose_turn with
+          | `Player1 ->
+            Ui_effect.map (Firebase_effects.notify_player_turn_effect ~game_id ~player_role:`Player1 ())
+              ~f:(fun result -> 
+                match result with
+                | Ok () -> js_log "Notification queued successfully for Player1"
+                | Error err -> js_log (sprintf "Notification failed: %s" err)
+              )
+          | `Player2 ->
+            Ui_effect.map (Firebase_effects.notify_player_turn_effect ~game_id ~player_role:`Player2 ())
+              ~f:(fun result -> 
+                match result with
+                | Ok () -> js_log "Notification queued successfully for Player2"
+                | Error err -> js_log (sprintf "Notification failed: %s" err)
+              )
+          | `Enemy -> 
+            let () = js_log "Enemy turn - no notification needed" in
+            Ui_effect.Ignore
+        ) else (
+          let () = js_log "Should not notify (enemy turn or same player)" in
+          Ui_effect.Ignore
+        )
+      | None, _, _ -> 
+        let () = js_log "No game_id - skipping notification" in
+        Ui_effect.Ignore
+      | _, None, _ -> 
+        let () = js_log "No player_role - skipping notification" in
+        Ui_effect.Ignore
+      | _, _, _ -> 
+        let () = js_log "Game not in progress - skipping notification" in
+        Ui_effect.Ignore
+    in
+    Ui_effect.Many [ set_game_state final_state; save_effect; notification_effect ]
   in
   
   (* Render based on app screen state *)
@@ -1216,10 +1476,13 @@ in
       ~set_password:set_auth_password
       ~on_sign_in:sign_in_effect
       ~on_sign_up:sign_up_effect
+      ~on_google_sign_in:google_sign_in_effect
       ~error:auth_error
-  | Home_screen { user_email; wins; losses; _ } ->
+  | Home_screen { user_email; user_display_name; user_photo_url; wins; losses; _ } ->
     render_home_screen
       ~user_email
+      ~user_display_name
+      ~user_photo_url
       ~wins
       ~losses
       ~on_create_lobby:create_lobby_effect
