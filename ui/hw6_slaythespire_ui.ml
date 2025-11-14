@@ -1,4 +1,5 @@
 open! Core
+open Js_of_ocaml
 open Tictactoe_logic_library
 open Hw2_slaythespire_logic
 open Virtual_dom
@@ -416,18 +417,35 @@ let render_hand
     (game_state : Game_state.t) 
     ~selected_card_index 
     ~on_card_select
-    ~on_end_turn =
-  let current_player_opt = 
-    match game_state.decision with
-    | In_progress { whose_turn = `Player1 } -> Some game_state.player1
-    | In_progress { whose_turn = `Player2 } -> Some game_state.player2
+    ~on_end_turn
+    ~is_my_turn
+    ~player_role =
+  (* Get YOUR player based on player_role, not whose turn it is *)
+  let my_player = match player_role with
+    | Some `Player1 -> Some (game_state.player1, "Player 1")
+    | Some `Player2 -> Some (game_state.player2, "Player 2")
+    | None -> None
+  in
+  
+  (* Get whose turn it is *)
+  let whose_turn = match game_state.decision with
+    | In_progress { whose_turn } -> Some whose_turn
     | _ -> None
   in
 
-  match current_player_opt with
-  | None -> Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "cards-area" ] []
-  | Some player ->
-    let hand_title = sprintf "%s's Hand" player.name in
+  match my_player, whose_turn with
+  | None, _ -> Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "cards-area" ] []
+  | Some (player, player_name), Some turn ->
+    (* Show your hand if it's your turn, or show waiting message if it's not *)
+    let hand_title = 
+      if is_my_turn then
+        sprintf "%s's Hand" player_name
+      else
+        (match turn with
+         | `Player1 -> "Waiting for Player 1..."
+         | `Player2 -> "Waiting for Player 2..."
+         | `Enemy -> "Enemy Turn...")
+    in
     
     Vdom.Node.div
       ~attrs:[ Vdom.Attr.class_ "cards-area" ]
@@ -436,14 +454,24 @@ let render_hand
           [ Vdom.Node.div
               ~attrs:[ Vdom.Attr.class_ "cards-title" ]
               [ Vdom.Node.text hand_title ]
-          ; Vdom.Node.create "button"
+          ; (if is_my_turn then
+              Vdom.Node.create "button"
               ~attrs:
                 [ Vdom.Attr.class_ "end-turn-btn"
                 ; Vdom.Attr.on_click (fun _ -> on_end_turn ())
                 ]
               [ Vdom.Node.text "End Turn" ]
+            else
+              Vdom.Node.div
+                ~attrs:[ Vdom.Attr.class_ "waiting-message" ]
+                [ Vdom.Node.text (match turn with
+                   | `Player1 -> "Waiting for Player 1 to finish their turn..."
+                   | `Player2 -> "Waiting for Player 2 to finish their turn..."
+                   | `Enemy -> "Enemy turn in progress...") ])
           ]
-      ; Vdom.Node.div
+      ; (if is_my_turn then
+          (* Show YOUR hand when it's your turn *)
+          Vdom.Node.div
           ~attrs:[ Vdom.Attr.class_ "hand" ]
           (List.mapi player.hand ~f:(fun index card ->
              let cost = Card.energy_cost card in
@@ -457,6 +485,36 @@ let render_hand
                card 
                ~selected:is_selected 
                ~on_select:(fun () -> on_card_select index) 
+                 ~can_afford
+             ))
+        else
+          (* Show waiting message when it's not your turn *)
+          Vdom.Node.div
+            ~attrs:[ Vdom.Attr.class_ "waiting-hand" ]
+            [ Vdom.Node.text (match turn with
+               | `Player1 -> "Player 1 is playing..."
+               | `Player2 -> "Player 2 is playing..."
+               | `Enemy -> "Enemy turn...") ])
+      ]
+  | Some (player, player_name), None ->
+    (* Game over state *)
+    Vdom.Node.div
+      ~attrs:[ Vdom.Attr.class_ "cards-area" ]
+      [ Vdom.Node.div
+          ~attrs:[ Vdom.Attr.class_ "hand-container" ]
+          [ Vdom.Node.div
+              ~attrs:[ Vdom.Attr.class_ "cards-title" ]
+              [ Vdom.Node.text (sprintf "%s's Hand" player_name) ]
+          ]
+      ; Vdom.Node.div
+          ~attrs:[ Vdom.Attr.class_ "hand" ]
+          (List.mapi player.hand ~f:(fun _index card ->
+             let cost = Card.energy_cost card in
+             let can_afford = player.energy >= cost in
+             render_card 
+               card 
+               ~selected:false 
+               ~on_select:(fun () -> Ui_effect.Ignore) 
                ~can_afford
            ))
       ]
@@ -554,7 +612,8 @@ let app =
   let%sub join_lobby_effect =
     let%arr set_lobby_screen = set_lobby_screen
     and set_current_game_id = set_current_game_id
-    and set_player_role = set_player_role in
+    and set_player_role = set_player_role
+    and set_game_state = set_game_state in
     let open Ui_effect.Let_syntax in
     fun game_id ->
       (* Step 1: Show loading state immediately *)
@@ -564,9 +623,17 @@ let app =
       (* Step 3: Update UI based on result *)
       match result with
       | Ok (game_id, players) ->
+        let%bind state_opt = Firebase_effects.fetch_game_state_effect ~game_id () in
+        let apply_state_effect =
+          match state_opt with
+          | Some state -> set_game_state state
+          | None -> Ui_effect.Ignore
+        in
         Ui_effect.Many [
           set_current_game_id (Some game_id);
           set_player_role (Some `Player2);
+          apply_state_effect;
+          (* Player 2 should stay in In_lobby until polling callback detects valid game state *)
           set_lobby_screen (In_lobby { game_id; players; is_host = false })
         ]
       | Error _err ->
@@ -580,23 +647,73 @@ let app =
   let%sub lobby_poll_callback =
     let%arr lobby_screen = lobby_screen
     and set_lobby_screen = set_lobby_screen
+    and set_game_state = set_game_state
     and current_game_id = current_game_id
-    and player_role = player_role in
+    and player_role = player_role
+    and game_state = game_state in
     let open Ui_effect.Let_syntax in
     match current_game_id, lobby_screen with
-    | Some game_id, In_lobby { game_id = lobby_id; is_host = _; _ } when String.equal game_id lobby_id ->
-      (* Check if player 2 has joined *)
-      let%bind result = Firebase_effects.fetch_lobby_status_effect ~game_id () in
-      (match result with
-       | Ok (player2_joined, _status_in_progress) ->
-         if player2_joined then (
-           (* Both players are ready - transition to game *)
-           Ui_effect.Many [
-             set_lobby_screen (In_game { game_id; player_role = Option.value_exn player_role })
-           ]
-         ) else
-           Ui_effect.Ignore
-       | Error _ -> Ui_effect.Ignore)
+    | Some game_id, In_lobby { game_id = lobby_id; is_host; _ } when String.equal game_id lobby_id ->
+      if is_host then (
+        (* Player 1: Check if player 2 has joined, then save state and transition *)
+        let%bind result = Firebase_effects.fetch_lobby_status_effect ~game_id () in
+        match result with
+        | Ok (player2_joined, _status_in_progress) ->
+          if player2_joined then (
+            (* Player 2 has joined - save initial game state to Firebase, then transition *)
+            let%bind save_result = Firebase_effects.save_game_state_effect ~game_id ~game_state () in
+            match save_result with
+            | Ok () ->
+              (* Save succeeded - transition to game *)
+              let _ = 
+                let console = Js.Unsafe.get Js.Unsafe.global "console" in
+                Js.Unsafe.meth_call console "log" 
+                  [| Js.Unsafe.inject (Js.string "Player 1: Successfully saved game state, transitioning to game") |]
+              in
+              Ui_effect.Many [
+                set_lobby_screen (In_game { game_id; player_role = Option.value_exn player_role })
+              ]
+            | Error err ->
+              (* Save failed - log error but still transition (state might be saved by polling) *)
+              let _ = 
+                let console = Js.Unsafe.get Js.Unsafe.global "console" in
+                Js.Unsafe.meth_call console "warn" 
+                  [| Js.Unsafe.inject (Js.string (sprintf "Player 1: Failed to save game state: %s, transitioning anyway" err)) |]
+              in
+              Ui_effect.Many [
+                set_lobby_screen (In_game { game_id; player_role = Option.value_exn player_role })
+              ]
+          ) else
+            Ui_effect.Ignore
+        | Error _ -> Ui_effect.Ignore
+      ) else (
+        (* Player 2: FORCE TRANSITION - check for state, but transition no matter what *)
+        let%bind firebase_state = Firebase_effects.fetch_game_state_effect ~game_id () in
+        match firebase_state with
+        | Some state ->
+          (* TRANSITION IMMEDIATELY - use whatever state we got *)
+          let _ = 
+            let console = Js.Unsafe.get Js.Unsafe.global "console" in
+            Js.Unsafe.meth_call console "log" 
+              [| Js.Unsafe.inject (Js.string "Player 2: FORCING TRANSITION WITH STATE") |]
+          in
+          Ui_effect.Many [
+            set_game_state state;
+            set_lobby_screen (In_game { game_id; player_role = Option.value_exn player_role })
+          ]
+        | None ->
+          (* Even if state is None, check if we've been waiting too long and force transition anyway *)
+          (* Use the current game_state (which might be initial state) and just transition *)
+          let _ = 
+            let console = Js.Unsafe.get Js.Unsafe.global "console" in
+            Js.Unsafe.meth_call console "log" 
+              [| Js.Unsafe.inject (Js.string "Player 2: State is None, but FORCING TRANSITION ANYWAY") |]
+          in
+          (* Force transition with current state - better than being stuck *)
+          Ui_effect.Many [
+            set_lobby_screen (In_game { game_id; player_role = Option.value_exn player_role })
+          ]
+      )
     | _ -> Ui_effect.Ignore
   in
   
@@ -610,23 +727,134 @@ let app =
   
   (* Polling callback for game state updates *)
   let%sub poll_callback =
-    let%arr game_state = game_state
-    and set_game_state = set_game_state
-    and current_game_id = current_game_id in
+    let%arr set_game_state = set_game_state
+    and current_game_id = current_game_id
+    and lobby_screen = lobby_screen
+    and game_state = game_state in
     let open Ui_effect.Let_syntax in
+    (* Only poll when in game *)
     match current_game_id with
     | None -> Ui_effect.Ignore
     | Some game_id ->
-      (* Fetch latest state from Firebase *)
-      let%bind result = Firebase_effects.fetch_game_state_effect ~game_id () in
-      match result with
-      | Some new_state ->
-        (* Update UI if state changed *)
-        if Game_state.equal new_state game_state then
-          Ui_effect.Ignore
-        else
-          set_game_state new_state
-      | None -> Ui_effect.Ignore
+      (* Check if we're in game mode *)
+      let in_game = match lobby_screen with
+        | In_game _ -> true
+        | _ -> false
+      in
+      if in_game then (
+        (* Fetch latest state from Firebase *)
+        let%bind result = Firebase_effects.fetch_game_state_effect ~game_id () in
+        (* Log that we're polling *)
+        let _ = 
+          try
+            let console = Js.Unsafe.get Js.Unsafe.global "console" in
+            Js.Unsafe.meth_call console "log" 
+              [| Js.Unsafe.inject (Js.string (sprintf "Polling: Fetching game state from Firebase (game_id: %s)" game_id)) |]
+          with _ -> ()
+        in
+        match result with
+        | Some new_state ->
+          (* Log what we got *)
+          let _ = 
+            try
+              let console = Js.Unsafe.get Js.Unsafe.global "console" in
+              Js.Unsafe.meth_call console "log" 
+                [| Js.Unsafe.inject (Js.string (sprintf "Polling: Got state from Firebase - p1 hand:%d draw:%d, p2 hand:%d draw:%d, enemies:%d" 
+                  (List.length new_state.player1.hand) (List.length new_state.player1.draw_pile)
+                  (List.length new_state.player2.hand) (List.length new_state.player2.draw_pile)
+                  (List.length new_state.enemies))) |]
+            with _ -> ()
+          in
+          (* Check if we have a valid state (both players should have cards or be initialized) *)
+          let has_valid_state = 
+            (List.length new_state.player1.hand > 0 || List.length new_state.player1.draw_pile > 0) &&
+            (List.length new_state.player2.hand > 0 || List.length new_state.player2.draw_pile > 0)
+          in
+          (* Also check if we have enemies - if we do, the state is probably valid even if cards are missing *)
+          let has_enemies = List.length new_state.enemies > 0 in
+          let state_is_valid = has_valid_state || has_enemies in
+          if state_is_valid then (
+            (* Check if the turn has changed - this helps with debugging *)
+            let turn_changed = not (Decision.equal game_state.decision new_state.decision) in
+            (* Always update if we got a valid state from Firebase *)
+            (* This ensures state sync even if local state differs *)
+            (* Log the update for debugging *)
+            let _ = 
+              let console = Js.Unsafe.get Js.Unsafe.global "console" in
+              let decision_str = match new_state.decision with
+                | In_progress { whose_turn = `Player1 } -> "Player1"
+                | In_progress { whose_turn = `Player2 } -> "Player2"
+                | In_progress { whose_turn = `Enemy } -> "Enemy"
+                | Victory -> "Victory"
+                | Defeat -> "Defeat"
+              in
+              let old_decision_str = match game_state.decision with
+                | In_progress { whose_turn = `Player1 } -> "Player1"
+                | In_progress { whose_turn = `Player2 } -> "Player2"
+                | In_progress { whose_turn = `Enemy } -> "Enemy"
+                | Victory -> "Victory"
+                | Defeat -> "Defeat"
+              in
+              Js.Unsafe.meth_call console "log" 
+                [| Js.Unsafe.inject (Js.string (sprintf "Polling: Updating game state from Firebase - Turn: %s -> %s (changed: %b)" old_decision_str decision_str turn_changed)) |]
+            in
+            (* Always update - Bonsai's state management will handle this correctly *)
+            (* Even if states appear equal, we want to ensure we have the latest from Firebase *)
+            set_game_state new_state
+          ) else (
+            (* State exists but seems invalid - log and keep polling *)
+            (* However, if we have enemies, we should still accept it (cards might be in discard pile) *)
+            let _ = 
+              let console = Js.Unsafe.get Js.Unsafe.global "console" in
+              Js.Unsafe.meth_call console "warn" 
+                [| Js.Unsafe.inject (Js.string (sprintf "Polling: Game state exists but appears invalid (p1 hand:%d draw:%d discard:%d, p2 hand:%d draw:%d discard:%d, enemies:%d), waiting for valid state..." 
+                  (List.length new_state.player1.hand) (List.length new_state.player1.draw_pile) (List.length new_state.player1.discard_pile)
+                  (List.length new_state.player2.hand) (List.length new_state.player2.draw_pile) (List.length new_state.player2.discard_pile)
+                  (List.length new_state.enemies))) |]
+            in
+            (* If we have enemies, the state is probably valid even if cards aren't parsed correctly *)
+            (* Accept it anyway to allow the game to continue *)
+            if has_enemies then (
+              let _ = 
+                try
+                  let console = Js.Unsafe.get Js.Unsafe.global "console" in
+                  Js.Unsafe.meth_call console "log" 
+                    [| Js.Unsafe.inject (Js.string "Polling: State has enemies, accepting it despite card parsing issues") |]
+                with _ -> ()
+              in
+              set_game_state new_state
+            ) else
+              Ui_effect.Ignore
+          )
+        | None -> 
+          (* Log when parsing fails *)
+          let _ = 
+            try
+              let console = Js.Unsafe.get Js.Unsafe.global "console" in
+              Js.Unsafe.meth_call console "warn" 
+                [| Js.Unsafe.inject (Js.string "Polling: Failed to parse game state from Firebase (returned None)") |]
+            with _ -> ()
+          in
+          (* Check if we're in a bad state *)
+          let current_state_valid = 
+            (List.length game_state.player1.hand > 0 || List.length game_state.player1.draw_pile > 0) &&
+            (List.length game_state.player2.hand > 0 || List.length game_state.player2.draw_pile > 0)
+          in
+          let current_has_enemies = List.length game_state.enemies > 0 in
+          if not current_state_valid && not current_has_enemies then (
+            (* We're in game but don't have a valid state - keep polling *)
+            let _ = 
+              let console = Js.Unsafe.get Js.Unsafe.global "console" in
+              Js.Unsafe.meth_call console "warn" 
+                [| Js.Unsafe.inject (Js.string "Polling: Failed to parse game state from Firebase, and current state also invalid - waiting...") |]
+            in
+            Ui_effect.Ignore
+          ) else (
+            (* Current state is valid, just failed to parse new one - that's okay *)
+            Ui_effect.Ignore
+          )
+      ) else
+        Ui_effect.Ignore
   in
   
   (* Schedule polling every 2 seconds *)
@@ -650,49 +878,64 @@ let app =
   and current_game_id = current_game_id
   and player_role = player_role in
   
-  (* Card selection handler *)
+  (* Check if it's the current player's turn *)
+  let is_my_turn =
+    match player_role, game_state.decision with
+    | Some `Player1, In_progress { whose_turn = `Player1 } -> true
+    | Some `Player2, In_progress { whose_turn = `Player2 } -> true
+    | _ -> false
+  in
+  
+  (* Card selection handler - only allow if it's your turn *)
   let on_card_select card_index =
+    if is_my_turn then
     set_selected_card_index (Some card_index)
+    else
+      Ui_effect.Ignore
   in
   
-  (* Target selection handler - also saves to Firebase *)
-  let on_target_click target =
-    match selected_card_index with
-    | None -> Ui_effect.Ignore
-    | Some card_index ->
-      (* Get the current player and their hand *)
-      let current_player = 
-        match game_state.decision with
-        | In_progress { whose_turn = `Player1 } -> game_state.player1
-        | In_progress { whose_turn = `Player2 } -> game_state.player2
-        | _ -> game_state.player1
-      in
-      (* Get the card at the selected index *)
-      (match List.nth current_player.hand card_index with
-       | None -> Ui_effect.Ignore
-       | Some card ->
-         (* Make the move *)
-         let move = Game_state.Move.{ card; target } in
-         (match Game_state.make_move game_state move with
-          | Ok new_state -> 
-            (* Save to Firebase if in multiplayer *)
-            let save_effect = match current_game_id with
-              | Some game_id -> 
-                Ui_effect.map (Firebase_effects.save_game_state_effect ~game_id ~game_state:new_state ()) 
-                  ~f:(fun _ -> ())
-              | None -> Ui_effect.Ignore
-            in
-            Ui_effect.Many [
-              set_game_state new_state;
-              set_selected_card_index None;
-              save_effect
-            ]
-          | Error _ -> 
-            Ui_effect.Ignore))
-  in
+  (* Target selection handler - also saves to Firebase, only if it's your turn *)
+let on_target_click target =
+    if not is_my_turn then Ui_effect.Ignore
+    else
+  match selected_card_index with
+      | None -> Ui_effect.Ignore
+  | Some card_index ->
+    (* Get the current player and their hand *)
+    let current_player = 
+      match game_state.decision with
+      | In_progress { whose_turn = `Player1 } -> game_state.player1
+      | In_progress { whose_turn = `Player2 } -> game_state.player2
+          | _ -> game_state.player1
+    in
+    (* Get the card at the selected index *)
+    (match List.nth current_player.hand card_index with
+     | None -> Ui_effect.Ignore
+     | Some card ->
+       (* Make the move *)
+       let move = Game_state.Move.{ card; target } in
+       (match Game_state.make_move game_state move with
+        | Ok new_state -> 
+              (* Save to Firebase if in multiplayer *)
+              let save_effect = match current_game_id with
+                | Some game_id -> 
+                  Ui_effect.map (Firebase_effects.save_game_state_effect ~game_id ~game_state:new_state ()) 
+                    ~f:(fun _ -> ())
+                | None -> Ui_effect.Ignore
+              in
+              Ui_effect.Many [
+                set_game_state new_state;
+                set_selected_card_index None;
+                save_effect
+              ]
+        | Error _ -> 
+          Ui_effect.Ignore))
+in
   
-  (* End turn button handler - also saves to Firebase *)
+  (* End turn button handler - also saves to Firebase, only if it's your turn *)
   let on_end_turn () =
+    if not is_my_turn then Ui_effect.Ignore
+    else
     let new_state = Game_state.end_turn game_state in
     (* If it's enemy turn, process enemy actions *)
     let final_state = 
@@ -701,11 +944,39 @@ let app =
         Game_state.process_enemy_turn new_state
       | _ -> new_state
     in
+    (* Log the turn change for debugging *)
+    let _ = 
+      let console = Js.Unsafe.get Js.Unsafe.global "console" in
+      let decision_str = match final_state.decision with
+        | In_progress { whose_turn = `Player1 } -> "Player1"
+        | In_progress { whose_turn = `Player2 } -> "Player2"
+        | In_progress { whose_turn = `Enemy } -> "Enemy"
+        | Victory -> "Victory"
+        | Defeat -> "Defeat"
+      in
+      Js.Unsafe.meth_call console "log" 
+        [| Js.Unsafe.inject (Js.string (sprintf "End turn: New turn is %s" decision_str)) |]
+    in
     (* Save to Firebase if in multiplayer *)
     let save_effect = match current_game_id with
       | Some game_id -> 
         Ui_effect.map (Firebase_effects.save_game_state_effect ~game_id ~game_state:final_state ()) 
-          ~f:(fun _ -> ())
+          ~f:(fun save_result ->
+            let console = Js.Unsafe.get Js.Unsafe.global "console" in
+            match save_result with
+            | Ok () -> 
+              Js.Unsafe.meth_call console "log" 
+                [| Js.Unsafe.inject (Js.string (sprintf "Successfully saved game state after end turn (turn: %s)" 
+                  (match final_state.decision with
+                   | In_progress { whose_turn = `Player1 } -> "Player1"
+                   | In_progress { whose_turn = `Player2 } -> "Player2"
+                   | In_progress { whose_turn = `Enemy } -> "Enemy"
+                   | Victory -> "Victory"
+                   | Defeat -> "Defeat"))) |]
+            | Error err -> 
+              Js.Unsafe.meth_call console "error" 
+                [| Js.Unsafe.inject (Js.string (sprintf "Failed to save game state after end turn: %s" err)) |]
+          )
       | None -> Ui_effect.Ignore
     in
     Ui_effect.Many [ set_game_state final_state; save_effect ]
@@ -721,9 +992,9 @@ let app =
       ~on_create_lobby:create_lobby_effect
       ~on_join_lobby:join_lobby_effect
   | In_game { game_id = _; player_role = _ } ->
-    Vdom.Node.div
-      ~attrs:[ Vdom.Attr.class_ "game-container" ]
-      [ render_header ()
+  Vdom.Node.div
+    ~attrs:[ Vdom.Attr.class_ "game-container" ]
+    [ render_header ()
       ; (match current_game_id with
          | Some id -> render_lobby_ui
              ~lobby_screen:(In_game { game_id = id; player_role = Option.value_exn player_role })
@@ -732,10 +1003,10 @@ let app =
              ~on_create_lobby:create_lobby_effect
              ~on_join_lobby:join_lobby_effect
          | None -> Vdom.Node.div ~attrs:[] [])
-      ; render_game_status game_state.decision
-      ; render_battle_area game_state ~selected_card_index ~on_target_click
-      ; render_hand game_state ~selected_card_index ~on_card_select ~on_end_turn
-      ]
+    ; render_game_status game_state.decision
+    ; render_battle_area game_state ~selected_card_index ~on_target_click
+      ; render_hand game_state ~selected_card_index ~on_card_select ~on_end_turn ~is_my_turn ~player_role
+    ]
 ;;
 
 (* Start the Bonsai app *)

@@ -72,13 +72,30 @@ module Firebase_http = struct
     Ivar.read ivar
   
   (* Make an HTTP PATCH request to update a document *)
-  let patch_firestore ~collection ~document_id ~body_json =
+  let patch_firestore ~collection ~document_id ~body_json ?(update_mask = []) () =
     let open Async_kernel in
     let ivar = Ivar.create () in
-    let url = sprintf 
-      "https://firestore.googleapis.com/v1/projects/%s/databases/(default)/documents/%s/%s?key=%s"
-      project_id collection document_id api_key
+    let base_url =
+      sprintf
+        "https://firestore.googleapis.com/v1/projects/%s/databases/(default)/documents/%s/%s"
+        project_id collection document_id
     in
+    let query_params =
+      let mask_params =
+        List.map update_mask ~f:(fun field ->
+            sprintf "updateMask.fieldPaths=%s" field)
+      in
+      let all_params = ("key", api_key) :: List.map mask_params ~f:(fun param -> (param, "")) in
+      let encoded =
+        all_params
+        |> List.map ~f:(fun (k, v) ->
+               if String.is_empty v then k else sprintf "%s=%s" k v)
+        |> String.concat ~sep:"&"
+      in
+      if String.is_empty encoded then ""
+      else sprintf "?%s" encoded
+    in
+    let url = base_url ^ query_params in
     let xhr = XmlHttpRequest.create () in
     ignore (Js.Unsafe.meth_call xhr "open" [| Js.Unsafe.inject (Js.string "PATCH")
                                              ; Js.Unsafe.inject (Js.string url)
