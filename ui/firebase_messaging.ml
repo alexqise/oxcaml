@@ -23,34 +23,113 @@ module Firebase_messaging = struct
       (* VAPID key from Firebase Console -> Cloud Messaging -> Web Push certificates *)
       let vapid_key = Js.string "BP75Vz4zkiRQfQ-EgLflsPRDjKSzpNl5My1-v3JgmrRGHyMK4mkcR1fBeK8cQj7EoDrxeIDFhifrP5oU47jprzw" in
       
-      (* Create options object for getToken *)
-      let options = Js.Unsafe.obj [||] in
-      let () = Js.Unsafe.set options "vapidKey" vapid_key in
-      
-      (* Call messaging.getToken() *)
-      let promise = Js.Unsafe.meth_call messaging "getToken" [| Js.Unsafe.inject options |] in
-      
-      (* Handle success *)
-      let on_success token = 
-        let token_str = Js.to_string token in
-        Ivar.fill ivar token_str
-      in
-      
-      (* Handle error *)
-      let on_error error = 
-        let error_msg = 
-          try Js.Unsafe.get error "message" |> Js.to_string
-          with _ -> "Failed to get FCM token"
+      (* Get the service worker registration - Firebase Messaging needs this to use the correct service worker *)
+      (* We need to get the registration that was registered in index.html at /firebase-messaging-sw.js *)
+      (* This prevents Firebase from trying to register a service worker from a different domain *)
+      try
+        let navigator = Js.Unsafe.get Js.Unsafe.global "navigator" in
+        let service_worker = Js.Unsafe.get navigator "serviceWorker" in
+        (* Call getRegistration() - returns a promise that resolves to registration or null *)
+        (* Use fun_call since getRegistration is a function property, not a method *)
+        let registration_promise = 
+          let get_registration_func = Js.Unsafe.get service_worker "getRegistration" in
+          Js.Unsafe.fun_call get_registration_func [||]
         in
-        let () = Js.Unsafe.fun_call (Js.Unsafe.js_expr "console.log") [| Js.Unsafe.inject (Js.string ("FCM token error: " ^ error_msg)) |] in
-        Ivar.fill ivar ""
-      in
-      
-      (* Attach promise handlers *)
-      let _ = Js.Unsafe.meth_call promise "then" [| Js.Unsafe.inject (Js.wrap_callback on_success) |] in
-      let _ = Js.Unsafe.meth_call promise "catch" [| Js.Unsafe.inject (Js.wrap_callback on_error) |] in
-      
-      Ivar.read ivar
+        
+        let on_registration reg =
+          (* Got the registration - now create options with it *)
+          let options = Js.Unsafe.obj [||] in
+          let () = Js.Unsafe.set options "vapidKey" vapid_key in
+          (* Explicitly set serviceWorkerRegistration to use our registered service worker *)
+          (* This tells Firebase to use OUR service worker, not try to register a new one *)
+          let () = Js.Unsafe.set options "serviceWorkerRegistration" reg in
+          
+          (* Call messaging.getToken() with the service worker registration *)
+          let promise = Js.Unsafe.meth_call messaging "getToken" [| Js.Unsafe.inject options |] in
+          
+          let on_success token = 
+            let token_str = Js.to_string token in
+            Ivar.fill ivar token_str
+          in
+          
+          let on_error error = 
+            let error_msg = 
+              try Js.Unsafe.get error "message" |> Js.to_string
+              with _ -> "Failed to get FCM token"
+            in
+            let () = Js.Unsafe.fun_call (Js.Unsafe.js_expr "console.log") 
+              [| Js.Unsafe.inject (Js.string ("FCM token error: " ^ error_msg)) |] in
+            Ivar.fill ivar ""
+          in
+          
+          let _ = Js.Unsafe.meth_call promise "then" [| Js.Unsafe.inject (Js.wrap_callback on_success) |] in
+          let _ = Js.Unsafe.meth_call promise "catch" [| Js.Unsafe.inject (Js.wrap_callback on_error) |] in
+          ()
+        in
+        
+        let on_no_registration _ =
+          (* No service worker registered yet - try without it (Firebase will register its own) *)
+          let options = Js.Unsafe.obj [||] in
+          let () = Js.Unsafe.set options "vapidKey" vapid_key in
+          
+          let promise = Js.Unsafe.meth_call messaging "getToken" [| Js.Unsafe.inject options |] in
+          
+          let on_success token = 
+            let token_str = Js.to_string token in
+            Ivar.fill ivar token_str
+          in
+          
+          let on_error error = 
+            let error_msg = 
+              try Js.Unsafe.get error "message" |> Js.to_string
+              with _ -> "Failed to get FCM token"
+            in
+            let () = Js.Unsafe.fun_call (Js.Unsafe.js_expr "console.log") 
+              [| Js.Unsafe.inject (Js.string ("FCM token error: " ^ error_msg)) |] in
+            Ivar.fill ivar ""
+          in
+          
+          let _ = Js.Unsafe.meth_call promise "then" [| Js.Unsafe.inject (Js.wrap_callback on_success) |] in
+          let _ = Js.Unsafe.meth_call promise "catch" [| Js.Unsafe.inject (Js.wrap_callback on_error) |] in
+          ()
+        in
+        
+        (* Handle the registration promise - if we get a registration, use it; otherwise proceed without *)
+        let _ = Js.Unsafe.meth_call registration_promise "then" 
+          [| Js.Unsafe.inject (Js.wrap_callback (fun reg -> 
+              if Js.Opt.test reg then
+                on_registration (Js.Opt.get reg (fun () -> assert false))
+              else
+                on_no_registration ()))
+           ; Js.Unsafe.inject (Js.wrap_callback on_no_registration) |] in
+        
+        Ivar.read ivar
+      with _ ->
+        (* Fallback: try without service worker registration *)
+        let options = Js.Unsafe.obj [||] in
+        let () = Js.Unsafe.set options "vapidKey" vapid_key in
+        
+        let promise = Js.Unsafe.meth_call messaging "getToken" [| Js.Unsafe.inject options |] in
+        
+        let on_success token = 
+          let token_str = Js.to_string token in
+          Ivar.fill ivar token_str
+        in
+        
+        let on_error error = 
+          let error_msg = 
+            try Js.Unsafe.get error "message" |> Js.to_string
+            with _ -> "Failed to get FCM token"
+          in
+          let () = Js.Unsafe.fun_call (Js.Unsafe.js_expr "console.log") 
+            [| Js.Unsafe.inject (Js.string ("FCM token error: " ^ error_msg)) |] in
+          Ivar.fill ivar ""
+        in
+        
+        let _ = Js.Unsafe.meth_call promise "then" [| Js.Unsafe.inject (Js.wrap_callback on_success) |] in
+        let _ = Js.Unsafe.meth_call promise "catch" [| Js.Unsafe.inject (Js.wrap_callback on_error) |] in
+        
+        Ivar.read ivar
     with _ ->
       let () = Js.Unsafe.fun_call (Js.Unsafe.js_expr "console.log") [| Js.Unsafe.inject (Js.string "Exception getting FCM token") |] in
       Ivar.fill ivar "";
