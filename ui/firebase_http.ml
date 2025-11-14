@@ -3,7 +3,7 @@ open Js_of_ocaml
 
 (* Firebase configuration *)
 let project_id = "coop-slaythespire"
-let api_key = "AIzaSyAMNg5zUEAiwLU4TDTlLhGm3Pqp032se5Q"
+let api_key = ""
 
 (* Firebase Firestore REST API helpers *)
 module Firebase_http = struct
