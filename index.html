@@ -27,17 +27,67 @@
   </head>
 
   <body>
+    <!-- Notification permission button -->
+    <div
+      id="notification-prompt"
+      style="
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        z-index: 10000;
+        background: #4caf50;
+        color: white;
+        padding: 15px;
+        border-radius: 5px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+        display: none;
+      "
+    >
+      <p style="margin: 0 0 10px 0">
+        Enable push notifications for game updates?
+      </p>
+      <button
+        id="enable-notifications"
+        style="
+          background: white;
+          color: #4caf50;
+          border: none;
+          padding: 8px 16px;
+          border-radius: 3px;
+          cursor: pointer;
+          font-weight: bold;
+        "
+      >
+        Enable Notifications
+      </button>
+      <button
+        id="dismiss-notifications"
+        style="
+          background: transparent;
+          color: white;
+          border: 1px solid white;
+          padding: 8px 16px;
+          border-radius: 3px;
+          cursor: pointer;
+          margin-left: 8px;
+        "
+      >
+        Maybe Later
+      </button>
+    </div>
+
     <div id="app"></div>
-    
+
     <!-- Firebase SDKs - using CDN for namespace API compatibility -->
     <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-analytics-compat.js"></script>
-    
+    <script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-messaging-compat.js"></script>
+
     <!-- Firebase initialization -->
     <script>
       // Initialize Firebase after page load to avoid blocking Bonsai
-      window.addEventListener('load', function() {
+      window.addEventListener("load", function () {
         const firebaseConfig = {
           apiKey: "AIzaSyAMNg5zUEAiwLU4TDTlLhGm3Pqp032se5Q",
           authDomain: "coop-slaythespire.firebaseapp.com",
@@ -45,16 +95,113 @@
           storageBucket: "coop-slaythespire.firebasestorage.app",
           messagingSenderId: "783879862672",
           appId: "1:783879862672:web:720391cc095eeed0f81b15",
-          measurementId: "G-MYW8H985KZ"
+          measurementId: "G-MYW8H985KZ",
         };
-        
+
         try {
           // Initialize Firebase (compat library provides firebase namespace)
           firebase.initializeApp(firebaseConfig);
           const auth = firebase.auth();
           const analytics = firebase.analytics();
+          const messaging = firebase.messaging();
           // Make Firebase Auth available globally
+
           window.firebase = { auth: () => auth };
+
+          if ("serviceWorker" in navigator) {
+            navigator.serviceWorker
+              .register("/firebase-messaging-sw.js")
+              .then(function (registration) {
+                console.log("Service worker registered:", registration);
+
+                // Check current notification permission
+                checkNotificationPermission();
+              })
+              .catch(function (err) {
+                console.error("Service worker registration failed:", err);
+              });
+          } else {
+            console.log("Service workers are not supported in this browser.");
+          }
+
+          // Check if we need to show the notification prompt
+          function checkNotificationPermission() {
+            if (Notification.permission === "granted") {
+              // Already granted, get token immediately
+              getTokenAndLog();
+            } else if (Notification.permission === "default") {
+              // Auto-request permission without showing custom button
+              askPermissionAndGetToken();
+            } else {
+              console.log("Notification permission denied");
+            }
+          }
+
+          // Handle button clicks (attach listeners immediately since we're in window.load)
+          const enableBtn = document.getElementById("enable-notifications");
+          const dismissBtn = document.getElementById("dismiss-notifications");
+
+          if (enableBtn) {
+            enableBtn.addEventListener("click", function () {
+              console.log("Enable button clicked");
+              askPermissionAndGetToken();
+            });
+          }
+
+          if (dismissBtn) {
+            dismissBtn.addEventListener("click", function () {
+              console.log("Dismiss button clicked");
+              const promptDiv = document.getElementById("notification-prompt");
+              if (promptDiv) {
+                promptDiv.style.display = "none";
+              }
+            });
+          }
+
+          function askPermissionAndGetToken() {
+            Notification.requestPermission().then(function (permission) {
+              if (permission !== "granted") {
+                console.log("Notification permission not granted:", permission);
+                return;
+              }
+
+              // Hide the prompt
+              document.getElementById("notification-prompt").style.display =
+                "none";
+
+              // Get token
+              getTokenAndLog();
+            });
+          }
+
+          function getTokenAndLog() {
+            // Replace with your VAPID public key
+            const vapidKey =
+              "BP75Vz4zkiRQfQ-EgLflsPRDjKSzpNl5My1-v3JgmrRGHyMK4mkcR1fBeK8cQj7EoDrxeIDFhifrP5oU47jprzw";
+
+            messaging
+              .getToken({ vapidKey })
+              .then(function (currentToken) {
+                if (currentToken) {
+                  console.log("FCM token:", currentToken);
+                  console.log("Copy this token to send test notifications!");
+                  // TODO: send this token to backend or copy it for testing
+                } else {
+                  console.log(
+                    "No registration token available. Request permission to generate one."
+                  );
+                }
+              })
+              .catch(function (err) {
+                console.error("An error occurred while retrieving token.", err);
+              });
+          }
+
+          // Optional: handle messages when the page is in the foreground
+          messaging.onMessage(function (payload) {
+            console.log("Message received in foreground:", payload);
+            // You can show an in-app popup or toast here instead of a system notification
+          });
         } catch (error) {
           console.warn("Firebase initialization failed (non-critical):", error);
         }
