@@ -201,12 +201,14 @@
             console.log("Requesting FCM token with VAPID key...");
 
             // Use the already-registered service worker
-            navigator.serviceWorker.ready.then(function (registration) {
-              return messaging.getToken({
-                vapidKey,
-                serviceWorkerRegistration: registration,
-              });
-            }).then(function (currentToken) {
+            navigator.serviceWorker.ready
+              .then(function (registration) {
+                return messaging.getToken({
+                  vapidKey,
+                  serviceWorkerRegistration: registration,
+                });
+              })
+              .then(function (currentToken) {
                 if (currentToken) {
                   console.log("========================================");
                   console.log("✅ FCM TOKEN:");
