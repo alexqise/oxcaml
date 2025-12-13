@@ -55,5 +55,8 @@ self.addEventListener("notificationclick", function (event) {
           return clients.openWindow("/"); // open your main page
         }
       })
+      .catch((error) => {
+        console.error("Notification click error:", error);
+      })
   );
 });
