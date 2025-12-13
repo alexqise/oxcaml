@@ -42,27 +42,28 @@ messaging.onBackgroundMessage(function (payload) {
 // Handle notification clicks - open the game
 self.addEventListener("notificationclick", function (event) {
   event.notification.close();
-  
+
   // Get the URL from the notification data, or default to the game home
   // Using relative path for GitHub Pages subdirectory compatibility
-  const urlToOpen = event.notification.data?.url || self.location.origin + '/oxcaml/';
-  
-  console.log('[SW] Notification clicked, opening URL:', urlToOpen);
-  
+  const urlToOpen =
+    event.notification.data?.url || self.location.origin + "/oxcaml/";
+
+  console.log("[SW] Notification clicked, opening URL:", urlToOpen);
+
   event.waitUntil(
     clients
       .matchAll({ type: "window", includeUncontrolled: true })
       .then((clientList) => {
         // Check if game is already open in a tab
         for (const client of clientList) {
-          if (client.url.includes('/oxcaml/') && 'focus' in client) {
+          if (client.url.includes("/oxcaml/") && "focus" in client) {
             // Found an open tab with the game, focus it
-            console.log('[SW] Found existing game tab, focusing it');
+            console.log("[SW] Found existing game tab, focusing it");
             return client.focus();
           }
         }
         // No existing tab, open a new one
-        console.log('[SW] No existing game tab, opening new window');
+        console.log("[SW] No existing game tab, opening new window");
         if (clients.openWindow) {
           return clients.openWindow(urlToOpen);
         }
